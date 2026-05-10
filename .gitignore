@@ -152,9 +152,7 @@ e2e/reports/*.html
 e2e/reports/*.json
 e2e/reports/*.xml
 
-# Seed Scripts
-seed_test_transactions.ts
-manual_email_test.ts
+# Seed Script
 
 # leave alone, t for tenks
 script/
