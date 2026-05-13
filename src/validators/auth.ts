@@ -1,13 +1,24 @@
 import { z } from "zod";
 
-export const registerSchema = z.object({
-  organizationName: z.string().min(2),
-  organizationSlug: z.string().min(2).max(180),
+const registerBaseSchema = z.object({
   firstName: z.string().min(2),
   lastName: z.string().min(2),
   email: z.email(),
   password: z.string().min(8),
 });
+
+export const registerSchema = z.discriminatedUnion("accountType", [
+  registerBaseSchema.extend({
+    accountType: z.literal("personal"),
+    organizationName: z.string().min(2).max(180).optional(),
+    organizationSlug: z.string().min(2).max(180).optional(),
+  }),
+  registerBaseSchema.extend({
+    accountType: z.literal("organization"),
+    organizationName: z.string().min(2).max(180),
+    organizationSlug: z.string().min(2).max(180).optional(),
+  }),
+]);
 
 export const loginSchema = z.object({
   email: z.email(),

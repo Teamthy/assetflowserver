@@ -16,6 +16,7 @@ import {
   revokeRefreshToken,
   revokeRefreshTokensForUser,
   saveRefreshToken,
+  normalizeSlug,
 } from "../repositories/auth";
 import { AuthenticationError, ConflictError, NotFoundError } from "../utils/error";
 import { users } from "../model";
@@ -54,22 +55,50 @@ const signRefreshToken = (payload: { userId: string; organizationId: string }) =
   return jwt.sign(payload, env.JWT_REFRESH_SECRET, { expiresIn: refreshExpiresIn });
 };
 
-export const register = async (input: {
-  organizationName: string;
-  organizationSlug: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  password: string;
-}) => {
+type RegisterInput =
+  | {
+      accountType: "personal";
+      organizationName?: string;
+      organizationSlug?: string;
+      firstName: string;
+      lastName: string;
+      email: string;
+      password: string;
+    }
+  | {
+      accountType: "organization";
+      organizationName: string;
+      organizationSlug?: string;
+      firstName: string;
+      lastName: string;
+      email: string;
+      password: string;
+    };
+
+export const register = async (input: RegisterInput) => {
   const existing = await findUserByEmail(input.email);
   if (existing) {
     throw new ConflictError("Email already in use");
   }
 
+  const emailPrefix = input.email.split("@")[0] ?? "user";
+  const fallbackSlugBase = normalizeSlug(`${emailPrefix}-${input.firstName}-${input.lastName}`) || "workspace";
+
+  const organizationName =
+    input.accountType === "personal"
+      ? `${input.firstName} ${input.lastName} Personal Workspace`
+      : input.organizationName.trim();
+
+  const organizationSlug =
+    input.accountType === "personal"
+      ? `${fallbackSlugBase}-${Date.now().toString().slice(-6)}`
+      : input.organizationSlug?.trim() || `${normalizeSlug(organizationName)}-${Date.now().toString().slice(-6)}`;
+
   const passwordHash = await bcrypt.hash(input.password, 12);
   const { owner, organization } = await createOrganizationWithOwner({
     ...input,
+    organizationName,
+    organizationSlug,
     passwordHash,
   });
 
