@@ -19,7 +19,7 @@ importers:
         version: 17.4.2
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(pg@8.20.0)
+        version: 0.45.2(@types/pg@8.20.0)(pg@8.20.0)
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
@@ -69,6 +69,9 @@ importers:
       '@types/node':
         specifier: ^25.6.2
         version: 25.6.2
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
@@ -619,6 +622,9 @@ packages:
 
   '@types/node@25.6.2':
     resolution: {integrity: sha512-sokuT28dxf9JT5Kady1fsXOvI4HVpjZa95NKT5y9PNTIrs2AsobR4GFAA90ZG8M+nxVRLysCXsVj6eGC7Vbrlw==}
+
+  '@types/pg@8.20.0':
+    resolution: {integrity: sha512-bEPFOaMAHTEP1EzpvHTbmwR8UsFyHSKsRisLIHVMXnpNefSbGA1bD6CVy+qKjGSqmZqNqBDV2azOBo8TgkcVow==}
 
   '@types/qs@6.15.1':
     resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
@@ -2032,6 +2038,12 @@ snapshots:
     dependencies:
       undici-types: 7.19.2
 
+  '@types/pg@8.20.0':
+    dependencies:
+      '@types/node': 25.6.2
+      pg-protocol: 1.13.0
+      pg-types: 2.2.0
+
   '@types/qs@6.15.1': {}
 
   '@types/range-parser@1.2.7': {}
@@ -2295,8 +2307,9 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.21.0
 
-  drizzle-orm@0.45.2(pg@8.20.0):
+  drizzle-orm@0.45.2(@types/pg@8.20.0)(pg@8.20.0):
     optionalDependencies:
+      '@types/pg': 8.20.0
       pg: 8.20.0
 
   dunder-proto@1.0.1:
