@@ -4,7 +4,7 @@
   "description": "Backend MVP for enterprise asset management",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "nodemon --watch src --ext ts --exec ts-node index.ts",
+    "dev": "nodemon --watch src --ext ts --exec ts-node --files index.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "db:generate": "drizzle-kit generate",
