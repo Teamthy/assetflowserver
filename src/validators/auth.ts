@@ -40,7 +40,7 @@ export const requestResetPasswordSchema = z.object({
 });
 
 export const resetPasswordSchema = z.object({
-  token: z.string().min(20),
+  token: z.string().length(6),
   newPassword: z.string().min(8),
 });
 

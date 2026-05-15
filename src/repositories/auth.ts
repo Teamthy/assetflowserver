@@ -25,6 +25,7 @@ export const hashToken = (token: string) =>
   crypto.createHash("sha256").update(`${token}:${env.TOKEN_HASH_PEPPER}`).digest("hex");
 
 export const generateToken = () => crypto.randomBytes(32).toString("hex");
+export const generateOtp = () => String(crypto.randomInt(100000, 1000000));
 
 export const findUserByEmail = async (email: string) => {
   const [record] = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);
