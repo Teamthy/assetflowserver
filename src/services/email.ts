@@ -18,12 +18,15 @@ const renderTemplate = async (
 
 export const sendPasswordResetOtpEmail = async (input: {
   to: string;
-  firstName: string;
+  userName: string;
   otp: string;
+  expiryMinutes: number;
 }) => {
   const html = await renderTemplate("password-reset-otp.hbs", {
-    firstName: input.firstName,
+    userName: input.userName,
     otp: input.otp,
+    expiryMinutes: String(input.expiryMinutes),
+    supportEmail: env.SUPPORT_EMAIL,
   });
 
   await resend.emails.send({

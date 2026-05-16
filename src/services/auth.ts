@@ -259,7 +259,12 @@ export const requestPasswordReset = async (input: { email: string }) => {
   const expiresAt = new Date(Date.now() + 1000 * 60 * 30);
 
   await createPasswordResetToken(user.id, rawToken, expiresAt);
-  await sendPasswordResetOtpEmail({ to: user.email, firstName: user.firstName, otp: rawToken });
+  await sendPasswordResetOtpEmail({
+    to: user.email,
+    userName: `${user.firstName} ${user.lastName}`,
+    otp: rawToken,
+    expiryMinutes: 30,
+  });
 };
 
 export const resetPassword = async (input: { token: string; newPassword: string }) => {
