@@ -28,6 +28,10 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().min(1),
   RESEND_FROM_EMAIL: z.email(),
   SUPPORT_EMAIL: z.email().default("support@example.com"),
+  LOG_OTP_FOR_DEBUG: z
+    .string()
+    .optional()
+    .transform((value) => value === "true"),
 });
 
 export const env = envSchema.parse(process.env);

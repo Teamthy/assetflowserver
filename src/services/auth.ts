@@ -22,6 +22,7 @@ import { AuthenticationError, ConflictError, NotFoundError } from "../utils/erro
 import { users } from "../model";
 import { organizationUsers } from "../model";
 import { sendOnboardingWelcomeEmail, sendPasswordResetOtpEmail } from "./email";
+import { logger } from "../utils/logger";
 
 const parseDurationMs = (value: string): number => {
   const match = value.match(/^(\d+)([smhd])$/);
@@ -259,6 +260,15 @@ export const requestPasswordReset = async (input: { email: string }) => {
   const expiresAt = new Date(Date.now() + 1000 * 60 * 30);
 
   await createPasswordResetToken(user.id, rawToken, expiresAt);
+
+  if (env.LOG_OTP_FOR_DEBUG === true && env.NODE_ENV !== "production") {
+    logger.warn("Password reset OTP generated (debug mode)", {
+      email: user.email,
+      otp: rawToken,
+      expiresAt: expiresAt.toISOString(),
+    });
+  }
+
   await sendPasswordResetOtpEmail({
     to: user.email,
     userName: `${user.firstName} ${user.lastName}`,
