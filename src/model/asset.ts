@@ -28,6 +28,11 @@ export const assetConditionEnum = pgEnum("asset_condition", [
   "poor",
 ]);
 
+export const depreciationMethodEnum = pgEnum("depreciation_method", [
+  "straight_line",
+  "reducing_balance",
+]);
+
 export const assets = pgTable(
   "assets",
   {
@@ -132,6 +137,71 @@ export const assetTransfers = pgTable(
     transferTargetRequiredChk: check(
       "asset_transfers_target_required_chk",
       sql`${table.toBranchId} IS NOT NULL OR ${table.toUserId} IS NOT NULL`,
+    ),
+  }),
+);
+
+export const assetDepreciationSnapshots = pgTable(
+  "asset_depreciation_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    assetId: uuid("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    fiscalYear: integer("fiscal_year").notNull(),
+    periodUsedPriorYears: integer("period_used_prior_years").notNull().default(0),
+    periodUsedCurrentYear: integer("period_used_current_year").notNull().default(0),
+    accumulatedDepreciationBf: numeric("accumulated_depreciation_bf", {
+      precision: 18,
+      scale: 2,
+    })
+      .notNull()
+      .default("0"),
+    yearlyDepCharge: numeric("yearly_dep_charge", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    totalAccumulatedDepreciation: numeric("total_accumulated_depreciation", {
+      precision: 18,
+      scale: 2,
+    })
+      .notNull()
+      .default("0"),
+    depreciationMethod: depreciationMethodEnum("depreciation_method")
+      .notNull()
+      .default("straight_line"),
+    runDate: timestamp("run_date", { withTimezone: true }).defaultNow().notNull(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    assetDepSnapshotOrgAssetYearUq: uniqueIndex(
+      "asset_dep_snapshot_org_asset_year_uq",
+    ).on(table.organizationId, table.assetId, table.fiscalYear),
+    assetDepSnapshotOrgYearIdx: index("asset_dep_snapshot_org_year_idx").on(
+      table.organizationId,
+      table.fiscalYear,
+    ),
+    assetDepSnapshotOrgAssetIdx: index("asset_dep_snapshot_org_asset_idx").on(
+      table.organizationId,
+      table.assetId,
+    ),
+    assetDepPriorYearsNonNegativeChk: check(
+      "asset_dep_prior_years_non_negative_chk",
+      sql`${table.periodUsedPriorYears} >= 0`,
+    ),
+    assetDepCurrentYearNonNegativeChk: check(
+      "asset_dep_current_year_non_negative_chk",
+      sql`${table.periodUsedCurrentYear} >= 0`,
+    ),
+    assetDepAmountsNonNegativeChk: check(
+      "asset_dep_amounts_non_negative_chk",
+      sql`${table.accumulatedDepreciationBf} >= 0 AND ${table.yearlyDepCharge} >= 0 AND ${table.totalAccumulatedDepreciation} >= 0`,
     ),
   }),
 );
