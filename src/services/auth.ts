@@ -10,7 +10,7 @@ import {
   findUserByEmail,
   findValidPasswordResetToken,
   findValidRefreshToken,
-  generateToken,
+  generateOtp,
   isUserInOrganization,
   markPasswordResetUsed,
   revokeRefreshToken,
@@ -21,6 +21,8 @@ import {
 import { AuthenticationError, ConflictError, NotFoundError } from "../utils/error";
 import { users } from "../model";
 import { organizationUsers } from "../model";
+import { sendOnboardingWelcomeEmail, sendPasswordResetOtpEmail } from "./email";
+import { logger } from "../utils/logger";
 
 const parseDurationMs = (value: string): number => {
   const match = value.match(/^(\d+)([smhd])$/);
@@ -111,6 +113,12 @@ export const register = async (input: RegisterInput) => {
 
   const refreshExpiresAt = new Date(Date.now() + parseDurationMs(env.JWT_REFRESH_EXPIRES_IN));
   await saveRefreshToken(owner.id, organization.id, refreshToken, refreshExpiresAt);
+
+  await sendOnboardingWelcomeEmail({
+    to: owner.email,
+    firstName: owner.firstName,
+    organizationName: organization.name,
+  });
 
   return {
     user: {
@@ -248,10 +256,25 @@ export const requestPasswordReset = async (input: { email: string }) => {
     return;
   }
 
-  const rawToken = generateToken();
+  const rawToken = generateOtp();
   const expiresAt = new Date(Date.now() + 1000 * 60 * 30);
 
   await createPasswordResetToken(user.id, rawToken, expiresAt);
+
+  if (env.LOG_OTP_FOR_DEBUG === true && env.NODE_ENV !== "production") {
+    logger.warn("Password reset OTP generated (debug mode)", {
+      email: user.email,
+      otp: rawToken,
+      expiresAt: expiresAt.toISOString(),
+    });
+  }
+
+  await sendPasswordResetOtpEmail({
+    to: user.email,
+    userName: `${user.firstName} ${user.lastName}`,
+    otp: rawToken,
+    expiryMinutes: 30,
+  });
 };
 
 export const resetPassword = async (input: { token: string; newPassword: string }) => {
