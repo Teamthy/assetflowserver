@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { authRouter } from "./auth";
+import { assetsRouter } from "./assets";
 
 export const apiRouter = Router();
 
@@ -8,3 +9,4 @@ apiRouter.get("/health", (_req, res) => {
 });
 
 apiRouter.use("/auth", authRouter);
+apiRouter.use("/assets", assetsRouter);
