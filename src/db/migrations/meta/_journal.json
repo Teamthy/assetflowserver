@@ -15,6 +15,13 @@
       "when": 1779285617079,
       "tag": "0001_round_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779320249893,
+      "tag": "0002_needy_ultragirl",
+      "breakpoints": true
     }
   ]
 }
