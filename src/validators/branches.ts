@@ -21,3 +21,7 @@ export const updateBranchSchema = z
 export const branchParamsSchema = z.object({
   id: uuidSchema,
 });
+
+export const deleteBranchQuerySchema = z.object({
+  force: z.coerce.boolean().default(false),
+});

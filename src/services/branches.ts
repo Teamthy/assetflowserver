@@ -1,4 +1,5 @@
 import {
+  countActiveAssetsInBranch,
   createBranch,
   findBranchById,
   listBranches,
@@ -6,7 +7,7 @@ import {
   updateBranchById,
 } from "../repositories/branches";
 import { CreateBranchInput, UpdateBranchInput } from "../types/branches";
-import { NotFoundError } from "../utils/error";
+import { ConflictError, NotFoundError } from "../utils/error";
 
 export const createBranchService = async (
   organizationId: string,
@@ -38,7 +39,17 @@ export const deleteBranchService = async (
   organizationId: string,
   branchId: string,
   actorUserId: string,
+  force = false,
 ) => {
+  if (!force) {
+    const activeAssetsCount = await countActiveAssetsInBranch(organizationId, branchId);
+    if (activeAssetsCount > 0) {
+      throw new ConflictError(
+        `Cannot delete branch with ${activeAssetsCount} active assets. Reassign assets first or retry with force=true.`,
+      );
+    }
+  }
+
   const record = await softDeleteBranchById(organizationId, branchId, actorUserId);
   if (!record) throw new NotFoundError("Branch");
   return record;

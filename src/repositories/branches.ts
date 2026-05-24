@@ -1,13 +1,42 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { db } from "../db";
 import { branches } from "../model/branch";
+import { assets } from "../model/asset";
 import { CreateBranchInput, UpdateBranchInput } from "../types/branches";
 import { AppError, ConflictError, DatabaseError } from "../utils/error";
+
+type PgLikeError = {
+  code?: string;
+  constraint?: string;
+  detail?: string;
+  message?: string;
+  cause?: unknown;
+  originalError?: unknown;
+};
+
+const unwrapPgError = (input: unknown): PgLikeError | undefined => {
+  const seen = new Set<unknown>();
+  const queue: unknown[] = [input];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object" || seen.has(current)) continue;
+    seen.add(current);
+
+    const candidate = current as PgLikeError;
+    if (candidate.code || candidate.constraint || candidate.detail) return candidate;
+    if (candidate.cause) queue.push(candidate.cause);
+    if (candidate.originalError) queue.push(candidate.originalError);
+  }
+
+  return undefined;
+};
 
 const mapBranchDbError = (error: unknown): never => {
   if (error instanceof AppError) throw error;
 
-  const dbError = error as { code?: string; constraint?: string; message?: string };
+  const wrapped = error as { message?: string };
+  const dbError = unwrapPgError(error) ?? (error as PgLikeError);
 
   if (dbError.code === "23505") {
     if (dbError.constraint === "branches_org_name_uq") {
@@ -19,7 +48,10 @@ const mapBranchDbError = (error: unknown): never => {
     throw new ConflictError("Duplicate value violates unique constraint");
   }
 
-  throw new DatabaseError(dbError.message || "Branch data operation failed", false);
+  throw new DatabaseError(
+    dbError.detail || dbError.message || wrapped.message || "Branch data operation failed",
+    false,
+  );
 };
 
 export const createBranch = async (
@@ -129,4 +161,22 @@ export const softDeleteBranchById = async (
     .returning();
 
   return record;
+};
+
+export const countActiveAssetsInBranch = async (
+  organizationId: string,
+  branchId: string,
+) => {
+  const [result] = await db
+    .select({ total: count() })
+    .from(assets)
+    .where(
+      and(
+        eq(assets.organizationId, organizationId),
+        eq(assets.branchId, branchId),
+        isNull(assets.deletedAt),
+      ),
+    );
+
+  return Number(result?.total ?? 0);
 };

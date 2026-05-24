@@ -7,6 +7,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { organizations, users } from "./user";
 
 export const branches = pgTable(
@@ -33,11 +34,11 @@ export const branches = pgTable(
     branchesOrgNameUq: uniqueIndex("branches_org_name_uq").on(
       table.organizationId,
       table.name,
-    ),
+    ).where(sql`${table.deletedAt} IS NULL`),
     branchesOrgCodeUq: uniqueIndex("branches_org_code_uq").on(
       table.organizationId,
       table.code,
-    ),
+    ).where(sql`${table.deletedAt} IS NULL AND ${table.code} IS NOT NULL`),
     branchesOrgDeletedAtIdx: index("branches_org_deleted_at_idx").on(
       table.organizationId,
       table.deletedAt,

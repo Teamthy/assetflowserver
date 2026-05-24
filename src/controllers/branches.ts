@@ -5,6 +5,7 @@ import { AuthenticationError, ValidationError } from "../utils/error";
 import {
   branchParamsSchema,
   createBranchSchema,
+  deleteBranchQuerySchema,
   updateBranchSchema,
 } from "../validators/branches";
 
@@ -86,10 +87,12 @@ export const deleteBranch = async (req: Request, res: Response, next: NextFuncti
   try {
     const auth = requireAuthContext(req);
     const params = parseData(branchParamsSchema, req.params);
+    const query = parseData(deleteBranchQuerySchema, req.query);
     const data = await branchesService.deleteBranchService(
       auth.organizationId,
       params.id,
       auth.userId,
+      query.force,
     );
     res.status(200).json({ success: true, data });
   } catch (error) {
