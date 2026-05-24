@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { bulkCreateAssetsAtomic } from "../repositories/assets";
+import { createAsset } from "../repositories/assets";
 import { findOrganizationById } from "../repositories/organizations";
 import { CreateAssetInput } from "../types/assets";
 import { ValidationError } from "../utils/error";
@@ -91,7 +91,9 @@ export const importAssetsFromExcel = async (
     };
   }
 
-  const rows = sheet.getRows(2, sheet.rowCount - 1) ?? [];
+  const rows = sheet
+    .getRows(2, Math.max(0, sheet.actualRowCount - 1))
+    ?.filter((row) => row.actualCellCount > 0) ?? [];
   const result: ImportResult = {
     totalRows: rows.length,
     insertedCount: 0,
@@ -143,23 +145,15 @@ export const importAssetsFromExcel = async (
     });
   }
 
-  if (validRows.length === 0) {
-    return result;
-  }
-
-  try {
-    await bulkCreateAssetsAtomic(
-      organizationId,
-      actorUserId,
-      validRows.map((entry) => entry.payload),
-    );
-    result.insertedCount = validRows.length;
-  } catch (error) {
-    result.failedCount += validRows.length;
-    for (const entry of validRows) {
+  for (const entry of validRows) {
+    try {
+      await createAsset(organizationId, actorUserId, entry.payload);
+      result.insertedCount += 1;
+    } catch (error) {
+      result.failedCount += 1;
       result.failures.push({
         row: entry.row,
-        message: error instanceof Error ? error.message : "Bulk insert failed",
+        message: error instanceof Error ? error.message : "Insert failed",
       });
     }
   }

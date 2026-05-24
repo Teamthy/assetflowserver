@@ -2,15 +2,38 @@ import ExcelJS from "exceljs";
 import { listAssets } from "../repositories/assets";
 import { ExportAssetsQuery } from "../types/assets";
 
+const toIsoString = (value: unknown): string => {
+  if (!value) return "";
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? "" : value.toISOString();
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+  }
+  return "";
+};
+
 export const exportAssetsWorkbook = async (
   organizationId: string,
   query: ExportAssetsQuery,
 ) => {
-  const result = await listAssets(organizationId, {
-    ...query,
-    page: 1,
-    limit: 10000,
-  });
+  const limit = 1000;
+  let page = 1;
+  const assets: Awaited<ReturnType<typeof listAssets>>["data"] = [];
+
+  while (true) {
+    const result = await listAssets(organizationId, {
+      ...query,
+      page,
+      limit,
+    });
+    assets.push(...result.data);
+    if (page >= result.pagination.totalPages) {
+      break;
+    }
+    page += 1;
+  }
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Assets");
@@ -26,7 +49,7 @@ export const exportAssetsWorkbook = async (
     { header: "Purchase Date", key: "purchaseDate", width: 24 },
   ];
 
-  for (const asset of result.data) {
+  for (const asset of assets) {
     sheet.addRow({
       name: asset.name,
       assetTag: asset.assetTag,
@@ -35,7 +58,7 @@ export const exportAssetsWorkbook = async (
       condition: asset.condition,
       category: asset.category,
       purchaseCost: asset.purchaseCost,
-      purchaseDate: asset.purchaseDate?.toISOString?.() ?? "",
+      purchaseDate: toIsoString(asset.purchaseDate),
     });
   }
 
