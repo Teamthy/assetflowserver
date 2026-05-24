@@ -8,12 +8,25 @@ import {
 } from "../repositories/branches";
 import { CreateBranchInput, UpdateBranchInput } from "../types/branches";
 import { ConflictError, NotFoundError } from "../utils/error";
+import { logger } from "../utils/logger";
 
 export const createBranchService = async (
   organizationId: string,
   actorUserId: string,
   payload: CreateBranchInput,
-) => createBranch(organizationId, actorUserId, payload);
+) => {
+  const record = await createBranch(organizationId, actorUserId, payload);
+  if (!record) {
+    throw new NotFoundError("Branch");
+  }
+  logger.info("Branch created", {
+    organizationId,
+    actorUserId,
+    branchId: record.id,
+    branchName: record.name,
+  });
+  return record;
+};
 
 export const listBranchesService = async (organizationId: string) =>
   listBranches(organizationId);
@@ -32,6 +45,7 @@ export const updateBranchService = async (
 ) => {
   const record = await updateBranchById(organizationId, branchId, actorUserId, payload);
   if (!record) throw new NotFoundError("Branch");
+  logger.info("Branch updated", { organizationId, actorUserId, branchId });
   return record;
 };
 
@@ -52,5 +66,6 @@ export const deleteBranchService = async (
 
   const record = await softDeleteBranchById(organizationId, branchId, actorUserId);
   if (!record) throw new NotFoundError("Branch");
+  logger.warn("Branch soft-deleted", { organizationId, actorUserId, branchId, force });
   return record;
 };

@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import { listAssets } from "../repositories/assets";
 import { ExportAssetsQuery } from "../types/assets";
+import { logger } from "../utils/logger";
 
 const toIsoString = (value: unknown): string => {
   if (!value) return "";
@@ -18,6 +19,7 @@ export const exportAssetsWorkbook = async (
   organizationId: string,
   query: ExportAssetsQuery,
 ) => {
+  logger.info("Asset export started", { organizationId });
   const limit = 1000;
   let page = 1;
   const assets: Awaited<ReturnType<typeof listAssets>>["data"] = [];
@@ -63,5 +65,6 @@ export const exportAssetsWorkbook = async (
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
+  logger.info("Asset export completed", { organizationId, exportedCount: assets.length });
   return Buffer.from(buffer);
 };

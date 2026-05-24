@@ -3,6 +3,7 @@ import { createAsset } from "../repositories/assets";
 import { findOrganizationById } from "../repositories/organizations";
 import { CreateAssetInput } from "../types/assets";
 import { ValidationError } from "../utils/error";
+import { logger } from "../utils/logger";
 import { importAssetRowSchema } from "../validators/assets";
 
 type ImportResult = {
@@ -70,6 +71,7 @@ export const importAssetsFromExcel = async (
   actorUserId: string,
   fileBuffer: Buffer<ArrayBufferLike>,
 ): Promise<ImportResult> => {
+  logger.info("Asset import started", { organizationId, actorUserId });
   const organization = await findOrganizationById(organizationId);
   if (!organization) {
     throw new ValidationError("Validation failed", [
@@ -157,6 +159,14 @@ export const importAssetsFromExcel = async (
       });
     }
   }
+
+  logger.info("Asset import completed", {
+    organizationId,
+    actorUserId,
+    totalRows: result.totalRows,
+    insertedCount: result.insertedCount,
+    failedCount: result.failedCount,
+  });
 
   return result;
 };

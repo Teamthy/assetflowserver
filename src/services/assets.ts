@@ -16,6 +16,7 @@ import {
   UpdateAssetInput,
 } from "../types/assets";
 import { NotFoundError, ValidationError } from "../utils/error";
+import { logger } from "../utils/logger";
 
 const assertBranchRequiredIfEnabled = async (
   organizationId: string,
@@ -43,7 +44,17 @@ export const createAssetService = async (
   payload: CreateAssetInput,
 ) => {
   await assertBranchRequiredIfEnabled(organizationId, payload.branchId);
-  return createAsset(organizationId, actorUserId, payload);
+  const record = await createAsset(organizationId, actorUserId, payload);
+  if (!record) {
+    throw new NotFoundError("Asset");
+  }
+  logger.info("Asset created", {
+    organizationId,
+    actorUserId,
+    assetId: record.id,
+    assetTag: record.assetTag,
+  });
+  return record;
 };
 
 export const listAssetsService = async (
@@ -68,6 +79,7 @@ export const updateAssetService = async (
 ) => {
   const record = await updateAssetById(organizationId, assetId, actorUserId, payload);
   if (!record) throw new NotFoundError("Asset");
+  logger.info("Asset updated", { organizationId, actorUserId, assetId });
   return record;
 };
 
@@ -78,6 +90,7 @@ export const deleteAssetService = async (
 ) => {
   const record = await softDeleteAssetById(organizationId, assetId, actorUserId);
   if (!record) throw new NotFoundError("Asset");
+  logger.warn("Asset soft-deleted", { organizationId, actorUserId, assetId });
   return record;
 };
 
@@ -89,6 +102,7 @@ export const transferAssetService = async (
 ) => {
   const record = await transferAsset(organizationId, assetId, actorUserId, payload);
   if (!record) throw new NotFoundError("Asset");
+  logger.info("Asset transferred", { organizationId, actorUserId, assetId });
   return record;
 };
 
