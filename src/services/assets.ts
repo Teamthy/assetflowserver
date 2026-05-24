@@ -8,19 +8,43 @@ import {
   transferAsset,
   updateAssetById,
 } from "../repositories/assets";
+import { findOrganizationById } from "../repositories/organizations";
 import {
   AssetListQuery,
   CreateAssetInput,
   TransferAssetInput,
   UpdateAssetInput,
 } from "../types/assets";
-import { NotFoundError } from "../utils/error";
+import { NotFoundError, ValidationError } from "../utils/error";
+
+const assertBranchRequiredIfEnabled = async (
+  organizationId: string,
+  branchId: string | undefined,
+) => {
+  const organization = await findOrganizationById(organizationId);
+  if (!organization) {
+    throw new NotFoundError("Organization");
+  }
+
+  if (organization.multiBranchEnabled && !branchId) {
+    throw new ValidationError("Validation failed", [
+      {
+        path: ["branchId"],
+        message:
+          "branchId is required when multi-branch mode is enabled for this organization",
+      },
+    ]);
+  }
+};
 
 export const createAssetService = async (
   organizationId: string,
   actorUserId: string,
   payload: CreateAssetInput,
-) => createAsset(organizationId, actorUserId, payload);
+) => {
+  await assertBranchRequiredIfEnabled(organizationId, payload.branchId);
+  return createAsset(organizationId, actorUserId, payload);
+};
 
 export const listAssetsService = async (
   organizationId: string,

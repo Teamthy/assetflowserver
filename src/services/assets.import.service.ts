@@ -1,6 +1,8 @@
 import ExcelJS from "exceljs";
 import { bulkCreateAssetsAtomic } from "../repositories/assets";
+import { findOrganizationById } from "../repositories/organizations";
 import { CreateAssetInput } from "../types/assets";
+import { ValidationError } from "../utils/error";
 import { importAssetRowSchema } from "../validators/assets";
 
 type ImportResult = {
@@ -68,6 +70,13 @@ export const importAssetsFromExcel = async (
   actorUserId: string,
   fileBuffer: Buffer<ArrayBufferLike>,
 ): Promise<ImportResult> => {
+  const organization = await findOrganizationById(organizationId);
+  if (!organization) {
+    throw new ValidationError("Validation failed", [
+      { path: ["organizationId"], message: "Organization not found" },
+    ]);
+  }
+
   const workbook = new ExcelJS.Workbook();
   const bytes = new Uint8Array(fileBuffer);
   await workbook.xlsx.load(bytes as never);
@@ -109,6 +118,16 @@ export const importAssetsFromExcel = async (
       result.failures.push({
         row: row.number,
         message: parsed.error.issues.map((i) => i.message).join(", "),
+      });
+      continue;
+    }
+
+    if (organization.multiBranchEnabled && !parsed.data.branchId) {
+      result.failedCount += 1;
+      result.failures.push({
+        row: row.number,
+        message:
+          "branchId is required when multi-branch mode is enabled for this organization",
       });
       continue;
     }
