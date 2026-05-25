@@ -120,6 +120,12 @@ export const register = async (input: RegisterInput) => {
     organizationName: organization.name,
   });
 
+  logger.info("User registration successful", {
+    userId: owner.id,
+    organizationId: organization.id,
+    accountType: input.accountType,
+  });
+
   return {
     user: {
       id: owner.id,
@@ -172,6 +178,11 @@ export const login = async (input: { email: string; password: string }) => {
   const refreshExpiresAt = new Date(Date.now() + parseDurationMs(env.JWT_REFRESH_EXPIRES_IN));
   await saveRefreshToken(user.id, orgMembership.organizationId, refreshToken, refreshExpiresAt);
 
+  logger.info("User login successful", {
+    userId: user.id,
+    organizationId: orgMembership.organizationId,
+  });
+
   return {
     user: {
       id: user.id,
@@ -219,6 +230,12 @@ export const organizationLogin = async (input: {
 
   const refreshExpiresAt = new Date(Date.now() + parseDurationMs(env.JWT_REFRESH_EXPIRES_IN));
   await saveRefreshToken(user.id, organization.id, refreshToken, refreshExpiresAt);
+
+  logger.info("Organization login successful", {
+    userId: user.id,
+    organizationId: organization.id,
+    organizationSlug: organization.slug,
+  });
 
   return {
     user: {
@@ -275,6 +292,8 @@ export const requestPasswordReset = async (input: { email: string }) => {
     otp: rawToken,
     expiryMinutes: 30,
   });
+
+  logger.info("Password reset OTP sent", { email: input.email.toLowerCase() });
 };
 
 export const resetPassword = async (input: { token: string; newPassword: string }) => {
@@ -287,6 +306,8 @@ export const resetPassword = async (input: { token: string; newPassword: string 
 
   await db.update(users).set({ passwordHash: newHash, updatedAt: new Date() }).where(eq(users.id, tokenRecord.userId));
   await markPasswordResetUsed(tokenRecord.id);
+
+  logger.warn("Password reset successful", { userId: tokenRecord.userId });
 
   return { message: "Password reset successful" };
 };
@@ -331,6 +352,11 @@ export const refreshAuthToken = async (input: { refreshToken: string }) => {
   const refreshExpiresAt = new Date(Date.now() + parseDurationMs(env.JWT_REFRESH_EXPIRES_IN));
   await saveRefreshToken(user.id, payload.organizationId, newRefreshToken, refreshExpiresAt);
 
+  logger.info("Auth token refreshed", {
+    userId: user.id,
+    organizationId: payload.organizationId,
+  });
+
   return { accessToken: newAccessToken, refreshToken: newRefreshToken };
 };
 
@@ -341,9 +367,17 @@ export const logout = async (input: {
 }) => {
   if (input.refreshToken) {
     await revokeRefreshToken(input.refreshToken);
+    logger.info("User logged out (single session)", {
+      userId: input.userId,
+      organizationId: input.organizationId,
+    });
     return { message: "Logged out" };
   }
 
   await revokeRefreshTokensForUser(input.userId, input.organizationId);
+  logger.info("User logged out (all sessions)", {
+    userId: input.userId,
+    organizationId: input.organizationId,
+  });
   return { message: "Logged out from all sessions" };
 };

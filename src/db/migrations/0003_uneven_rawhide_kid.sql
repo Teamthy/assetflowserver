@@ -1,0 +1,1 @@
+ALTER TABLE "organizations" ADD COLUMN "multi_branch_enabled" boolean DEFAULT false NOT NULL;
