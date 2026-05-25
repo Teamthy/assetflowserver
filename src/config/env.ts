@@ -31,7 +31,8 @@ const envSchema = z.object({
   LOG_OTP_FOR_DEBUG: z
     .string()
     .optional()
-    .transform((value) => value === "true"),
+    .transform((value) => value === "true")
+    .default(false),
 });
 
 export const env = envSchema.parse(process.env);

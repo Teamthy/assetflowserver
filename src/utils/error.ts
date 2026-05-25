@@ -14,7 +14,7 @@ export class AppError extends Error {
     this.code = code;
     this.isOperational = isOperational;
 
-    Object.setPrototypeOf(this, AppError.prototype);
+    Object.setPrototypeOf(this, new.target.prototype);
 
     Error.captureStackTrace(this, this.constructor);
   }
@@ -89,6 +89,10 @@ export const isAppError = (error: any): error is AppError => {
 
 export const toAppError = (error: any): AppError => {
   if (isAppError(error)) return error;
+
+  if (error?.name === "ZodError" && Array.isArray(error?.issues)) {
+    return new ValidationError("Validation failed", error.issues);
+  }
 
   if (error?.name === "MulterError") {
     return new ValidationError("File upload error", [error]);

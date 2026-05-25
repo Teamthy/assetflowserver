@@ -75,6 +75,7 @@ export const organizations = pgTable(
       .references(() => plans.id, { onDelete: "restrict" }),
     seatLimitOverride: integer("seat_limit_override"),
     currentSeatCount: integer("current_seat_count").notNull().default(0),
+    multiBranchEnabled: boolean("multi_branch_enabled").notNull().default(false),
     isActive: boolean("is_active").notNull().default(true),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
       onDelete: "set null",

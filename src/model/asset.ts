@@ -14,6 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { organizations, users } from "./user";
+import { branches } from "./branch";
 
 export const assetStatusEnum = pgEnum("asset_status", [
   "active",
@@ -47,7 +48,9 @@ export const assets = pgTable(
     category: varchar("category", { length: 120 }),
     manufacturer: varchar("manufacturer", { length: 120 }),
     model: varchar("model", { length: 120 }),
-    branchId: uuid("branch_id"),
+    branchId: uuid("branch_id").references(() => branches.id, {
+      onDelete: "set null",
+    }),
     assignedTo: uuid("assigned_to").references(() => users.id, {
       onDelete: "set null",
     }),
