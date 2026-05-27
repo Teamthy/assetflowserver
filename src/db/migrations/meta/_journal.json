@@ -36,6 +36,20 @@
       "when": 1779656973490,
       "tag": "0004_clear_garia",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779726322759,
+      "tag": "0005_high_raza",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1779726501863,
+      "tag": "0006_youthful_shockwave",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,7 @@ import {
 } from "../types/assets";
 import { NotFoundError, ValidationError } from "../utils/error";
 import { logger } from "../utils/logger";
+import { createInAppNotification } from "./notifications";
 
 const assertBranchRequiredIfEnabled = async (
   organizationId: string,
@@ -54,6 +55,19 @@ export const createAssetService = async (
     assetId: record.id,
     assetTag: record.assetTag,
   });
+  if (record.assignedTo) {
+    await createInAppNotification({
+      organizationId,
+      userId: record.assignedTo,
+      type: "asset_assigned",
+      title: "Asset assigned to you",
+      message: `${record.name} (${record.assetTag}) has been assigned to you.`,
+      metadata: {
+        assetId: record.id,
+        redirectUrl: `/assets/${record.id}`,
+      },
+    });
+  }
   return record;
 };
 
@@ -103,6 +117,19 @@ export const transferAssetService = async (
   const record = await transferAsset(organizationId, assetId, actorUserId, payload);
   if (!record) throw new NotFoundError("Asset");
   logger.info("Asset transferred", { organizationId, actorUserId, assetId });
+  if (payload.toUserId) {
+    await createInAppNotification({
+      organizationId,
+      userId: payload.toUserId,
+      type: "asset_transferred",
+      title: "Asset transferred to you",
+      message: `An asset has been transferred to your custody.`,
+      metadata: {
+        assetId,
+        redirectUrl: `/assets/${assetId}`,
+      },
+    });
+  }
   return record;
 };
 

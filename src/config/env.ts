@@ -17,7 +17,7 @@ const envSchema = z.object({
   JWT_SECRET: secretSchema("dev-jwt-secret-change-me-12345"),
   JWT_REFRESH_SECRET: secretSchema("dev-jwt-refresh-secret-change-me-12345"),
   TOKEN_HASH_PEPPER: secretSchema("dev-token-hash-pepper-change-me-12345"),
-  JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
+  JWT_ACCESS_EXPIRES_IN: z.string().default("30m"),
   JWT_REFRESH_EXPIRES_IN: z.string().default("7d"),
   COOKIE_DOMAIN: z.string().optional(),
   COOKIE_SECURE: z

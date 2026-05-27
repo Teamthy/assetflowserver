@@ -23,6 +23,7 @@ import { users } from "../model";
 import { organizationUsers } from "../model";
 import { sendOnboardingWelcomeEmail, sendPasswordResetOtpEmail } from "./email";
 import { logger } from "../utils/logger";
+import { createInAppNotification } from "./notifications";
 
 const parseDurationMs = (value: string): number => {
   const match = value.match(/^(\d+)([smhd])$/);
@@ -292,6 +293,25 @@ export const requestPasswordReset = async (input: { email: string }) => {
     otp: rawToken,
     expiryMinutes: 30,
   });
+
+  const [membership] = await db
+    .select({ organizationId: organizationUsers.organizationId })
+    .from(organizationUsers)
+    .where(eq(organizationUsers.userId, user.id))
+    .limit(1);
+
+  if (membership?.organizationId) {
+    await createInAppNotification({
+      organizationId: membership.organizationId,
+      userId: user.id,
+      type: "password_reset",
+      title: "Password reset requested",
+      message: "A password reset OTP was requested for your account.",
+      metadata: {
+        redirectUrl: "/auth/reset-password",
+      },
+    });
+  }
 
   logger.info("Password reset OTP sent", { email: input.email.toLowerCase() });
 };
