@@ -33,6 +33,11 @@ export const maintenanceTasks = pgTable(
     dueAt: timestamp("due_at", { withTimezone: true }),
     assignedTo: uuid("assigned_to").references(() => users.id, { onDelete: "set null" }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedByUserId: uuid("completed_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    completionNote: text("completion_note"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -54,6 +59,10 @@ export const maintenanceTasks = pgTable(
     maintenanceOrgAssetIdx: index("maintenance_org_asset_idx").on(
       table.organizationId,
       table.assetId,
+    ),
+    maintenanceOrgDeletedAtIdx: index("maintenance_org_deleted_at_idx").on(
+      table.organizationId,
+      table.deletedAt,
     ),
   }),
 );

@@ -1,4 +1,4 @@
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { notifications } from "../model/notification";
 import { NotificationsQuery } from "../types/notifications";
@@ -40,26 +40,35 @@ export const listNotifications = async (
   const unreadFilter = and(baseFilter, eq(notifications.isRead, false))!;
   const filter = query.unreadOnly ? unreadFilter : baseFilter;
 
-  const [totalResult, unreadResult, rows] = await Promise.all([
-    db.select({ total: count() }).from(notifications).where(filter),
-    db.select({ total: count() }).from(notifications).where(unreadFilter),
+  const [[countResult], rows] = await Promise.all([
+    db
+      .select({
+        total: sql<number>`count(*)`,
+        unreadCount: sql<number>`count(*) filter (where ${notifications.isRead} = false)`,
+      })
+      .from(notifications)
+      .where(baseFilter),
     db
       .select()
       .from(notifications)
       .where(filter)
-      .orderBy(desc(notifications.createdAt))
+      .orderBy(desc(notifications.createdAt), desc(notifications.id))
       .limit(query.limit)
       .offset(offset),
   ]);
+
+  const total = Number(countResult?.total ?? 0);
+  const unreadCount = Number(countResult?.unreadCount ?? 0);
+  const filteredTotal = query.unreadOnly ? unreadCount : total;
 
   return {
     data: rows,
     pagination: {
       page: query.page,
       limit: query.limit,
-      total: Number(totalResult[0]?.total ?? 0),
-      totalPages: Math.max(1, Math.ceil(Number(totalResult[0]?.total ?? 0) / query.limit)),
-      unreadCount: Number(unreadResult[0]?.total ?? 0),
+      total: filteredTotal,
+      totalPages: Math.max(1, Math.ceil(filteredTotal / query.limit)),
+      unreadCount,
     },
   };
 };
@@ -85,7 +94,7 @@ export const markNotificationRead = async (
 };
 
 export const markAllNotificationsRead = async (organizationId: string, userId: string) => {
-  await db
+  const result = await db
     .update(notifications)
     .set({ isRead: true, readAt: new Date() })
     .where(
@@ -95,4 +104,6 @@ export const markAllNotificationsRead = async (organizationId: string, userId: s
         eq(notifications.isRead, false),
       ),
     );
+
+  return { updated: result.rowCount ?? 0 };
 };

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull } from "drizzle-orm";
 import { db } from "../db";
 import { maintenanceTasks } from "../model/maintenance";
 import { CreateMaintenanceInput, MaintenanceListQuery, UpdateMaintenanceInput } from "../types/maintenance";
@@ -31,6 +31,7 @@ export const listMaintenanceTasks = async (
   query: MaintenanceListQuery,
 ) => {
   const filters = [eq(maintenanceTasks.organizationId, organizationId)];
+  filters.push(isNull(maintenanceTasks.deletedAt));
   if (query.status) filters.push(eq(maintenanceTasks.status, query.status));
   if (query.assignedTo) filters.push(eq(maintenanceTasks.assignedTo, query.assignedTo));
   if (query.assetId) filters.push(eq(maintenanceTasks.assetId, query.assetId));
@@ -65,7 +66,13 @@ export const findMaintenanceTaskById = async (organizationId: string, maintenanc
   const [record] = await db
     .select()
     .from(maintenanceTasks)
-    .where(and(eq(maintenanceTasks.organizationId, organizationId), eq(maintenanceTasks.id, maintenanceId)))
+    .where(
+      and(
+        eq(maintenanceTasks.organizationId, organizationId),
+        eq(maintenanceTasks.id, maintenanceId),
+        isNull(maintenanceTasks.deletedAt),
+      ),
+    )
     .limit(1);
 
   return record;
@@ -92,7 +99,13 @@ export const updateMaintenanceTaskById = async (
   const [record] = await db
     .update(maintenanceTasks)
     .set(updatePayload)
-    .where(and(eq(maintenanceTasks.organizationId, organizationId), eq(maintenanceTasks.id, maintenanceId)))
+    .where(
+      and(
+        eq(maintenanceTasks.organizationId, organizationId),
+        eq(maintenanceTasks.id, maintenanceId),
+        isNull(maintenanceTasks.deletedAt),
+      ),
+    )
     .returning();
 
   return record;
@@ -102,16 +115,25 @@ export const completeMaintenanceTaskById = async (
   organizationId: string,
   maintenanceId: string,
   actorUserId: string,
+  completionNote?: string,
 ) => {
   const [record] = await db
     .update(maintenanceTasks)
     .set({
       status: "completed",
       completedAt: new Date(),
+      completedByUserId: actorUserId,
+      completionNote: completionNote ?? null,
       updatedByUserId: actorUserId,
       updatedAt: new Date(),
     })
-    .where(and(eq(maintenanceTasks.organizationId, organizationId), eq(maintenanceTasks.id, maintenanceId)))
+    .where(
+      and(
+        eq(maintenanceTasks.organizationId, organizationId),
+        eq(maintenanceTasks.id, maintenanceId),
+        isNull(maintenanceTasks.deletedAt),
+      ),
+    )
     .returning();
 
   return record;
