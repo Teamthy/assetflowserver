@@ -3,9 +3,17 @@ import { organizations, users } from "./user";
 
 export const notificationTypeEnum = pgEnum("notification_type", [
   "maintenance_due",
+  "maintenance_scheduled",
   "maintenance_completed",
   "asset_assigned",
   "asset_transferred",
+  "asset_updated",
+  "asset_deleted",
+  "asset_disposed",
+  "warranty_expiring",
+  "depreciation_completed",
+  "branch_created",
+  "branch_updated",
   "approval_required",
   "organization_invite",
   "password_reset",

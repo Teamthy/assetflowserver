@@ -5,6 +5,7 @@ import { CreateAssetInput } from "../types/assets";
 import { ValidationError } from "../utils/error";
 import { logger } from "../utils/logger";
 import { importAssetRowSchema } from "../validators/assets";
+import { createInAppNotification } from "./notifications";
 
 type ImportResult = {
   totalRows: number;
@@ -166,6 +167,20 @@ export const importAssetsFromExcel = async (
     totalRows: result.totalRows,
     insertedCount: result.insertedCount,
     failedCount: result.failedCount,
+  });
+
+  await createInAppNotification({
+    organizationId,
+    userId: actorUserId,
+    type: "system_alert",
+    title: "Asset import completed",
+    message: `${result.insertedCount} asset(s) imported. ${result.failedCount} row(s) failed.`,
+    metadata: {
+      totalRows: result.totalRows,
+      insertedCount: result.insertedCount,
+      failedCount: result.failedCount,
+      redirectUrl: "/assets",
+    },
   });
 
   return result;

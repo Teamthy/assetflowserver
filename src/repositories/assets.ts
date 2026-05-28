@@ -498,6 +498,27 @@ export const listAssetDepreciationSnapshots = async (
     .orderBy(desc(assetDepreciationSnapshots.fiscalYear));
 };
 
+export const listWarrantyExpiringAssets = async (
+  organizationId: string,
+  daysAhead = 30,
+) => {
+  const now = new Date();
+  const until = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+
+  return db
+    .select()
+    .from(assets)
+    .where(
+      and(
+        eq(assets.organizationId, organizationId),
+        isNull(assets.deletedAt),
+        gte(assets.warrantyExpiryDate, now),
+        lte(assets.warrantyExpiryDate, until),
+      ),
+    )
+    .orderBy(asc(assets.warrantyExpiryDate), asc(assets.id));
+};
+
 export const getAssetAuditSummary = async (
   organizationId: string,
   includeDeleted = false,

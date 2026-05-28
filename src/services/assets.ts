@@ -4,6 +4,7 @@ import {
   listAssetDepreciationSnapshots,
   listAssets,
   listAssetTransfers,
+  listWarrantyExpiringAssets,
   softDeleteAssetById,
   transferAsset,
   updateAssetById,
@@ -17,7 +18,11 @@ import {
 } from "../types/assets";
 import { NotFoundError, ValidationError } from "../utils/error";
 import { logger } from "../utils/logger";
-import { createInAppNotification } from "./notifications";
+import {
+  createInAppNotification,
+  notifyOrganizationAdmins,
+  notifyWarrantyExpiringSoon,
+} from "./notifications";
 
 const assertBranchRequiredIfEnabled = async (
   organizationId: string,
@@ -91,9 +96,53 @@ export const updateAssetService = async (
   actorUserId: string,
   payload: UpdateAssetInput,
 ) => {
+  const current = await getAssetByIdService(organizationId, assetId);
   const record = await updateAssetById(organizationId, assetId, actorUserId, payload);
   if (!record) throw new NotFoundError("Asset");
   logger.info("Asset updated", { organizationId, actorUserId, assetId });
+
+  if (payload.assignedTo && payload.assignedTo !== current.assignedTo) {
+    await createInAppNotification({
+      organizationId,
+      userId: payload.assignedTo,
+      type: "asset_updated",
+      title: "Asset assigned to you",
+      message: `${record.name} (${record.assetTag}) has been assigned to you.`,
+      metadata: {
+        assetId: record.id,
+        redirectUrl: `/assets/${record.id}`,
+      },
+    });
+  }
+
+  if (payload.status === "disposed" && current.status !== "disposed") {
+    if (record.assignedTo) {
+      await createInAppNotification({
+        organizationId,
+        userId: record.assignedTo,
+        type: "asset_disposed",
+        title: "Asset disposed",
+        message: `${record.name} (${record.assetTag}) has been marked as disposed.`,
+        metadata: {
+          assetId: record.id,
+          redirectUrl: `/assets/${record.id}`,
+        },
+      });
+    }
+
+    await notifyOrganizationAdmins({
+      organizationId,
+      type: "asset_disposed",
+      title: "Asset disposed",
+      message: `${record.name} (${record.assetTag}) has been marked as disposed.`,
+      metadata: {
+        assetId: record.id,
+        actorUserId,
+        redirectUrl: `/assets/${record.id}`,
+      },
+    });
+  }
+
   return record;
 };
 
@@ -105,6 +154,33 @@ export const deleteAssetService = async (
   const record = await softDeleteAssetById(organizationId, assetId, actorUserId);
   if (!record) throw new NotFoundError("Asset");
   logger.warn("Asset soft-deleted", { organizationId, actorUserId, assetId });
+
+  if (record.assignedTo) {
+    await createInAppNotification({
+      organizationId,
+      userId: record.assignedTo,
+      type: "asset_deleted",
+      title: "Asset removed",
+      message: `${record.name} (${record.assetTag}) has been removed from active assets.`,
+      metadata: {
+        assetId: record.id,
+        redirectUrl: `/assets/${record.id}`,
+      },
+    });
+  }
+
+  await notifyOrganizationAdmins({
+    organizationId,
+    type: "asset_deleted",
+    title: "Asset removed",
+    message: `${record.name} (${record.assetTag}) has been removed from active assets.`,
+    metadata: {
+      assetId: record.id,
+      actorUserId,
+      redirectUrl: `/assets/${record.id}`,
+    },
+  });
+
   return record;
 };
 
@@ -145,4 +221,25 @@ export const getAssetTimelineService = async (
   ]);
 
   return { transfers, depreciation };
+};
+
+export const notifyWarrantyExpiringAssetsService = async (
+  organizationId: string,
+  daysAhead = 30,
+) => {
+  const expiringAssets = await listWarrantyExpiringAssets(organizationId, daysAhead);
+
+  await Promise.all(
+    expiringAssets.map((asset) =>
+      notifyWarrantyExpiringSoon({
+        organizationId,
+        assetId: asset.id,
+        assetName: asset.name,
+        assetTag: asset.assetTag,
+        warrantyExpiryDate: asset.warrantyExpiryDate!,
+      }),
+    ),
+  );
+
+  return { notified: expiringAssets.length };
 };

@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { notifications } from "../model/notification";
+import { organizationUsers, roles, userRoles, users } from "../model/user";
 import { NotificationsQuery } from "../types/notifications";
 
 export const createNotification = async (input: {
@@ -24,6 +25,54 @@ export const createNotification = async (input: {
     .returning();
 
   return record;
+};
+
+export const findNotificationRecipient = async (userId: string) => {
+  const [record] = await db
+    .select({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      email: users.email,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  return record;
+};
+
+export const findOrganizationAdminRecipients = async (organizationId: string) => {
+  return db
+    .selectDistinct({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      email: users.email,
+    })
+    .from(users)
+    .innerJoin(
+      organizationUsers,
+      and(
+        eq(organizationUsers.userId, users.id),
+        eq(organizationUsers.organizationId, organizationId),
+        eq(organizationUsers.status, "active"),
+      ),
+    )
+    .leftJoin(
+      userRoles,
+      and(
+        eq(userRoles.userId, users.id),
+        eq(userRoles.organizationId, organizationId),
+      ),
+    )
+    .leftJoin(roles, eq(roles.id, userRoles.roleId))
+    .where(
+      and(
+        eq(organizationUsers.organizationId, organizationId),
+        eq(roles.name, "admin"),
+      ),
+    );
 };
 
 export const listNotifications = async (

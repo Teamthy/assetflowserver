@@ -1,8 +1,7 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gte, isNull, lte } from "drizzle-orm";
 import { db } from "../db";
 import { assets } from "../model/asset";
 import { maintenanceTasks } from "../model/maintenance";
-import { notifications } from "../model/notification";
 import { organizationUsers, users } from "../model/user";
 import {
   findMaintenanceTaskById,
@@ -16,6 +15,7 @@ import {
 } from "../types/maintenance";
 import { ConflictError, NotFoundError, ValidationError } from "../utils/error";
 import { logger } from "../utils/logger";
+import { createInAppNotification } from "./notifications";
 
 const assertAssetExistsInOrg = async (organizationId: string, assetId: string) => {
   const [record] = await db
@@ -87,23 +87,6 @@ export const createMaintenanceService = async (
 
     if (!record) throw new ConflictError("Failed to create maintenance task");
 
-    if (record.assignedTo) {
-      await tx.insert(notifications).values({
-        organizationId,
-        userId: record.assignedTo,
-        type: "maintenance_due",
-        title: "Maintenance task assigned",
-        message: `${record.title} has been assigned to you.`,
-        metadata: {
-          maintenanceId: record.id,
-          assetId: record.assetId,
-          priority: record.priority,
-          dueAt: record.dueAt?.toISOString(),
-          redirectUrl: `/maintenance/${record.id}`,
-        },
-      });
-    }
-
     return record;
   });
 
@@ -113,6 +96,23 @@ export const createMaintenanceService = async (
     maintenanceId: task.id,
     assetId: task.assetId,
   });
+
+  if (task.assignedTo) {
+    await createInAppNotification({
+      organizationId,
+      userId: task.assignedTo,
+      type: "maintenance_scheduled",
+      title: "Maintenance scheduled",
+      message: `${task.title} has been scheduled and assigned to you.`,
+      metadata: {
+        maintenanceId: task.id,
+        assetId: task.assetId,
+        priority: task.priority,
+        dueAt: task.dueAt?.toISOString(),
+        redirectUrl: `/maintenance/${task.id}`,
+      },
+    });
+  }
 
   return task;
 };
@@ -179,27 +179,26 @@ export const updateMaintenanceService = async (
 
     if (!record) throw new NotFoundError("Maintenance task");
 
-    if (record.assignedTo && record.assignedTo !== current.assignedTo) {
-      await tx.insert(notifications).values({
-        organizationId,
-        userId: record.assignedTo,
-        type: "maintenance_due",
-        title: "Maintenance task assigned",
-        message: `${record.title} has been assigned to you.`,
-        metadata: {
-          maintenanceId: record.id,
-          assetId: record.assetId,
-          priority: record.priority,
-          dueAt: record.dueAt?.toISOString(),
-          redirectUrl: `/maintenance/${record.id}`,
-        },
-      });
-    }
-
     return record;
   });
 
   logger.info("Maintenance task updated", { organizationId, actorUserId, maintenanceId });
+  if (updated.assignedTo) {
+    await createInAppNotification({
+      organizationId,
+      userId: updated.assignedTo,
+      type: "maintenance_scheduled",
+      title: "Maintenance task updated",
+      message: `${updated.title} has been updated.`,
+      metadata: {
+        maintenanceId: updated.id,
+        assetId: updated.assetId,
+        priority: updated.priority,
+        dueAt: updated.dueAt?.toISOString(),
+        redirectUrl: `/maintenance/${updated.id}`,
+      },
+    });
+  }
   return updated;
 };
 
@@ -231,23 +230,6 @@ export const completeMaintenanceService = async (
 
     if (!record) throw new NotFoundError("Maintenance task");
 
-    if (record.assignedTo) {
-      await tx.insert(notifications).values({
-        organizationId,
-        userId: record.assignedTo,
-        type: "maintenance_completed",
-        title: "Maintenance task completed",
-        message: `${record.title} has been marked as completed.`,
-        metadata: {
-          maintenanceId: record.id,
-          assetId: record.assetId,
-          completedByUserId: actorUserId,
-          completionNote: payload.note ?? null,
-          redirectUrl: `/maintenance/${record.id}`,
-        },
-      });
-    }
-
     return record;
   });
 
@@ -258,5 +240,65 @@ export const completeMaintenanceService = async (
     hasNote: Boolean(payload.note),
   });
 
+  if (completed.assignedTo) {
+    await createInAppNotification({
+      organizationId,
+      userId: completed.assignedTo,
+      type: "maintenance_completed",
+      title: "Maintenance task completed",
+      message: `${completed.title} has been marked as completed.`,
+      metadata: {
+        maintenanceId: completed.id,
+        assetId: completed.assetId,
+        completedByUserId: actorUserId,
+        completionNote: payload.note ?? null,
+        redirectUrl: `/maintenance/${completed.id}`,
+      },
+    });
+  }
+
   return completed;
+};
+
+export const notifyMaintenanceDueSoonService = async (
+  organizationId: string,
+  daysAhead = 7,
+) => {
+  const now = new Date();
+  const until = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+
+  const tasks = await db
+    .select()
+    .from(maintenanceTasks)
+    .where(
+      and(
+        eq(maintenanceTasks.organizationId, organizationId),
+        isNull(maintenanceTasks.deletedAt),
+        gte(maintenanceTasks.dueAt, now),
+        lte(maintenanceTasks.dueAt, until),
+      ),
+    );
+
+  await Promise.all(
+    tasks
+      .filter((task) => Boolean(task.assignedTo))
+      .map((task) =>
+        createInAppNotification({
+          organizationId,
+          userId: task.assignedTo!,
+          type: "maintenance_due",
+          title: "Maintenance due soon",
+          message: `${task.title} is due soon.`,
+          metadata: {
+            maintenanceId: task.id,
+            assetId: task.assetId,
+            priority: task.priority,
+            dueAt: task.dueAt?.toISOString(),
+            redirectUrl: `/maintenance/${task.id}`,
+          },
+        }),
+      ),
+  );
+
+  return { notified: tasks.filter((task) => Boolean(task.assignedTo)).length };
 };
