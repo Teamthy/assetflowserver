@@ -14,7 +14,14 @@ assetsRouter.get("/export", assetsController.exportAssets);
 assetsRouter.post("/import", upload.single("file"), assetsController.importAssets);
 assetsRouter.get("/audit", assetsController.getAssetsAudit);
 assetsRouter.post("/", assetsController.createAsset);
+assetsRouter.get("/:id/timeline", assetsController.getAssetTimeline);
+assetsRouter.post("/:id/dispose", assetsController.disposeAsset);
+assetsRouter.post("/:id/restore", assetsController.restoreAsset);
+assetsRouter.post(
+  "/:id/depreciation",
+  assetsController.recordAssetDepreciation,
+);
+assetsRouter.post("/:id/transfer", assetsController.transferAsset);
 assetsRouter.get("/:id", assetsController.getAssetById);
 assetsRouter.patch("/:id", assetsController.updateAsset);
 assetsRouter.delete("/:id", assetsController.deleteAsset);
-assetsRouter.post("/:id/transfer", assetsController.transferAsset);

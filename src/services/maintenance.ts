@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, lte } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, ne } from "drizzle-orm";
 import { db } from "../db";
 import { assets } from "../model/asset";
 import { maintenanceTasks } from "../model/maintenance";
@@ -7,6 +7,10 @@ import {
   findMaintenanceTaskById,
   listMaintenanceTasks,
 } from "../repositories/maintenance";
+import {
+  recordAssetLifecycleEvent,
+  transitionAssetStatus,
+} from "../repositories/assets";
 import {
   CompleteMaintenanceInput,
   CreateMaintenanceInput,
@@ -97,6 +101,20 @@ export const createMaintenanceService = async (
     assetId: task.assetId,
   });
 
+  await recordAssetLifecycleEvent({
+    organizationId,
+    assetId: task.assetId,
+    actorUserId,
+    eventType: "maintenance_scheduled",
+    description: task.title,
+    metadata: {
+      maintenanceId: task.id,
+      priority: task.priority,
+      dueAt: task.dueAt?.toISOString(),
+      assignedTo: task.assignedTo,
+    },
+  });
+
   if (task.assignedTo) {
     await createInAppNotification({
       organizationId,
@@ -134,6 +152,17 @@ export const updateMaintenanceService = async (
   actorUserId: string,
   payload: UpdateMaintenanceInput,
 ) => {
+  if (payload.status === "completed") {
+    throw new ValidationError("Validation failed", [
+      {
+        path: ["status"],
+        message: "Use the maintenance completion endpoint to complete a task",
+      },
+    ]);
+  }
+
+  const previous = await getMaintenanceByIdService(organizationId, maintenanceId);
+
   if (payload.assignedTo !== undefined) {
     await assertAssigneeInOrg(organizationId, payload.assignedTo);
   }
@@ -183,6 +212,51 @@ export const updateMaintenanceService = async (
   });
 
   logger.info("Maintenance task updated", { organizationId, actorUserId, maintenanceId });
+
+  if (payload.status === "in_progress" && previous.status !== "in_progress") {
+    await transitionAssetStatus(
+      organizationId,
+      updated.assetId,
+      actorUserId,
+      "maintenance",
+      "maintenance_started",
+      `Maintenance started: ${updated.title}`,
+      { maintenanceId: updated.id },
+    );
+  }
+
+  if (
+    previous.status === "in_progress" &&
+    payload.status &&
+    ["open", "cancelled"].includes(payload.status)
+  ) {
+    const [otherInProgress] = await db
+      .select({ id: maintenanceTasks.id })
+      .from(maintenanceTasks)
+      .where(
+        and(
+          eq(maintenanceTasks.organizationId, organizationId),
+          eq(maintenanceTasks.assetId, updated.assetId),
+          eq(maintenanceTasks.status, "in_progress"),
+          ne(maintenanceTasks.id, updated.id),
+          isNull(maintenanceTasks.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    if (!otherInProgress) {
+      await transitionAssetStatus(
+        organizationId,
+        updated.assetId,
+        actorUserId,
+        "active",
+        "status_changed",
+        `Maintenance ${payload.status}: ${updated.title}`,
+        { maintenanceId: updated.id },
+      );
+    }
+  }
+
   if (updated.assignedTo) {
     await createInAppNotification({
       organizationId,
@@ -239,6 +313,34 @@ export const completeMaintenanceService = async (
     maintenanceId,
     hasNote: Boolean(payload.note),
   });
+
+  const [otherInProgress] = await db
+    .select({ id: maintenanceTasks.id })
+    .from(maintenanceTasks)
+    .where(
+      and(
+        eq(maintenanceTasks.organizationId, organizationId),
+        eq(maintenanceTasks.assetId, completed.assetId),
+        eq(maintenanceTasks.status, "in_progress"),
+        ne(maintenanceTasks.id, completed.id),
+        isNull(maintenanceTasks.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  await transitionAssetStatus(
+    organizationId,
+    completed.assetId,
+    actorUserId,
+    otherInProgress ? "maintenance" : "active",
+    "maintenance_completed",
+    `Maintenance completed: ${completed.title}`,
+    {
+      maintenanceId: completed.id,
+      completionNote: payload.note ?? null,
+      otherMaintenanceInProgress: Boolean(otherInProgress),
+    },
+  );
 
   if (completed.assignedTo) {
     await createInAppNotification({

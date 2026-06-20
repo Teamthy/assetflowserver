@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -32,6 +33,30 @@ export const assetConditionEnum = pgEnum("asset_condition", [
 export const depreciationMethodEnum = pgEnum("depreciation_method", [
   "straight_line",
   "reducing_balance",
+]);
+
+export const assetLifecycleEventTypeEnum = pgEnum("asset_lifecycle_event_type", [
+  "registered",
+  "updated",
+  "assigned",
+  "transferred",
+  "status_changed",
+  "maintenance_scheduled",
+  "maintenance_started",
+  "maintenance_completed",
+  "disposed",
+  "deleted",
+  "restored",
+  "depreciation_recorded",
+]);
+
+export const assetDisposalMethodEnum = pgEnum("asset_disposal_method", [
+  "sold",
+  "donated",
+  "scrapped",
+  "lost",
+  "written_off",
+  "other",
 ]);
 
 export const assets = pgTable(
@@ -205,6 +230,93 @@ export const assetDepreciationSnapshots = pgTable(
     assetDepAmountsNonNegativeChk: check(
       "asset_dep_amounts_non_negative_chk",
       sql`${table.accumulatedDepreciationBf} >= 0 AND ${table.yearlyDepCharge} >= 0 AND ${table.totalAccumulatedDepreciation} >= 0`,
+    ),
+  }),
+);
+
+export const assetLifecycleEvents = pgTable(
+  "asset_lifecycle_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    assetId: uuid("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    eventType: assetLifecycleEventTypeEnum("event_type").notNull(),
+    previousStatus: assetStatusEnum("previous_status"),
+    newStatus: assetStatusEnum("new_status"),
+    description: text("description"),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    actorUserId: uuid("actor_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    lifecycleOrgAssetDateIdx: index("asset_lifecycle_org_asset_date_idx").on(
+      table.organizationId,
+      table.assetId,
+      table.occurredAt,
+    ),
+    lifecycleOrgTypeDateIdx: index("asset_lifecycle_org_type_date_idx").on(
+      table.organizationId,
+      table.eventType,
+      table.occurredAt,
+    ),
+  }),
+);
+
+export const assetDisposals = pgTable(
+  "asset_disposals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    assetId: uuid("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    method: assetDisposalMethodEnum("method").notNull(),
+    reason: text("reason").notNull(),
+    proceeds: numeric("proceeds", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    disposedAt: timestamp("disposed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    disposedByUserId: uuid("disposed_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    approvedByUserId: uuid("approved_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    disposalOrgAssetIdx: index("asset_disposals_org_asset_idx").on(
+      table.organizationId,
+      table.assetId,
+    ),
+    disposalOrgDateIdx: index("asset_disposals_org_date_idx").on(
+      table.organizationId,
+      table.disposedAt,
+    ),
+    disposalProceedsNonNegativeChk: check(
+      "asset_disposals_proceeds_non_negative_chk",
+      sql`${table.proceeds} >= 0`,
     ),
   }),
 );

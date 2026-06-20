@@ -14,14 +14,20 @@ import {
 } from "drizzle-orm";
 import { db } from "../db";
 import {
+  assetDisposals,
   assetDepreciationSnapshots,
+  assetLifecycleEvents,
   assets,
   assetTransfers,
 } from "../model/asset";
 import {
   AssetAuditSummary,
+  AssetLifecycleQuery,
   AssetListQuery,
   CreateAssetInput,
+  DisposeAssetInput,
+  RecordAssetDepreciationInput,
+  RestoreAssetInput,
   TransferAssetInput,
   UpdateAssetInput,
 } from "../types/assets";
@@ -149,28 +155,44 @@ export const createAsset = async (
   payload: CreateAssetInput,
 ) => {
   try {
-    const [record] = await db
-      .insert(assets)
-      .values({
+    return await db.transaction(async (tx) => {
+      const [record] = await tx
+        .insert(assets)
+        .values({
+          organizationId,
+          ...payload,
+          purchaseCost: String(payload.purchaseCost),
+          residualValue:
+            payload.residualValue === undefined
+              ? null
+              : String(payload.residualValue),
+          purchaseDate: payload.purchaseDate ?? null,
+          warrantyExpiryDate: payload.warrantyExpiryDate ?? null,
+          createdByUserId: actorUserId,
+          updatedByUserId: actorUserId,
+        })
+        .returning();
+
+      if (!record) {
+        throw new DatabaseError("Failed to create asset");
+      }
+
+      await tx.insert(assetLifecycleEvents).values({
         organizationId,
-        ...payload,
-        purchaseCost: String(payload.purchaseCost),
-        residualValue:
-          payload.residualValue === undefined
-            ? null
-            : String(payload.residualValue),
-        purchaseDate: payload.purchaseDate ?? null,
-        warrantyExpiryDate: payload.warrantyExpiryDate ?? null,
-        createdByUserId: actorUserId,
-        updatedByUserId: actorUserId,
-      })
-      .returning();
+        assetId: record.id,
+        eventType: "registered",
+        newStatus: record.status,
+        description: "Asset registered",
+        metadata: {
+          assetTag: record.assetTag,
+          assignedTo: record.assignedTo,
+          branchId: record.branchId,
+        },
+        actorUserId,
+      });
 
-    if (!record) {
-      throw new DatabaseError("Failed to create asset");
-    }
-
-    return record;
+      return record;
+    });
   } catch (error) {
     mapAssetDbError(error);
   }
@@ -340,19 +362,64 @@ export const updateAssetById = async (
   }
 
   try {
-    const [record] = await db
-      .update(assets)
-      .set(updatePayload)
-      .where(
-        and(
-          eq(assets.organizationId, organizationId),
-          eq(assets.id, assetId),
-          isNull(assets.deletedAt),
-        ),
-      )
-      .returning();
+    return await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(assets)
+        .where(
+          and(
+            eq(assets.organizationId, organizationId),
+            eq(assets.id, assetId),
+            isNull(assets.deletedAt),
+          ),
+        )
+        .limit(1);
 
-    return record;
+      if (!current) return undefined;
+
+      const [record] = await tx
+        .update(assets)
+        .set(updatePayload)
+        .where(
+          and(
+            eq(assets.organizationId, organizationId),
+            eq(assets.id, assetId),
+            isNull(assets.deletedAt),
+          ),
+        )
+        .returning();
+
+      if (!record) return undefined;
+
+      const eventType =
+        record.assignedTo !== current.assignedTo
+          ? "assigned"
+          : record.status !== current.status
+            ? "status_changed"
+            : "updated";
+
+      await tx.insert(assetLifecycleEvents).values({
+        organizationId,
+        assetId,
+        eventType,
+        previousStatus: current.status,
+        newStatus: record.status,
+        description:
+          eventType === "assigned"
+            ? "Asset assignment changed"
+            : eventType === "status_changed"
+              ? `Asset status changed from ${current.status} to ${record.status}`
+              : "Asset details updated",
+        metadata: {
+          previousAssignedTo: current.assignedTo,
+          assignedTo: record.assignedTo,
+          changedFields: Object.keys(payload),
+        },
+        actorUserId,
+      });
+
+      return record;
+    });
   } catch (error) {
     mapAssetDbError(error);
   }
@@ -364,23 +431,37 @@ export const softDeleteAssetById = async (
   actorUserId: string,
 ) => {
   try {
-    const [record] = await db
-      .update(assets)
-      .set({
-        deletedAt: new Date(),
-        updatedAt: new Date(),
-        updatedByUserId: actorUserId,
-      })
-      .where(
-        and(
-          eq(assets.organizationId, organizationId),
-          eq(assets.id, assetId),
-          isNull(assets.deletedAt),
-        ),
-      )
-      .returning();
+    return await db.transaction(async (tx) => {
+      const [record] = await tx
+        .update(assets)
+        .set({
+          deletedAt: new Date(),
+          updatedAt: new Date(),
+          updatedByUserId: actorUserId,
+        })
+        .where(
+          and(
+            eq(assets.organizationId, organizationId),
+            eq(assets.id, assetId),
+            isNull(assets.deletedAt),
+          ),
+        )
+        .returning();
 
-    return record;
+      if (!record) return undefined;
+
+      await tx.insert(assetLifecycleEvents).values({
+        organizationId,
+        assetId,
+        eventType: "deleted",
+        previousStatus: record.status,
+        newStatus: record.status,
+        description: "Asset soft-deleted",
+        actorUserId,
+      });
+
+      return record;
+    });
   } catch (error) {
     mapAssetDbError(error);
   }
@@ -459,6 +540,23 @@ export const transferAsset = async (
         })
         .returning();
 
+      await tx.insert(assetLifecycleEvents).values({
+        organizationId,
+        assetId,
+        eventType: "transferred",
+        previousStatus: currentAsset.status,
+        newStatus: updatedAsset.status,
+        description: payload.reason || "Asset transferred",
+        metadata: {
+          transferId: transferRecord?.id,
+          fromBranchId: currentAsset.branchId,
+          toBranchId: updatedAsset.branchId,
+          fromUserId: currentAsset.assignedTo,
+          toUserId: updatedAsset.assignedTo,
+        },
+        actorUserId,
+      });
+
       return { updatedAsset, transferRecord };
     });
   } catch (error) {
@@ -482,6 +580,322 @@ export const listAssetTransfers = async (
     .orderBy(desc(assetTransfers.transferredAt));
 };
 
+export const transitionAssetStatus = async (
+  organizationId: string,
+  assetId: string,
+  actorUserId: string,
+  newStatus: "active" | "maintenance" | "disposed",
+  eventType:
+    | "status_changed"
+    | "maintenance_started"
+    | "maintenance_completed",
+  description: string,
+  metadata: Record<string, unknown> = {},
+) => {
+  try {
+    return await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(assets)
+        .where(
+          and(
+            eq(assets.organizationId, organizationId),
+            eq(assets.id, assetId),
+            isNull(assets.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!current) return undefined;
+      if (current.status === "disposed" && newStatus !== "disposed") {
+        throw new ConflictError("Disposed assets must be restored before changing status");
+      }
+
+      const [record] = await tx
+        .update(assets)
+        .set({
+          status: newStatus,
+          updatedByUserId: actorUserId,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(assets.organizationId, organizationId),
+            eq(assets.id, assetId),
+            isNull(assets.deletedAt),
+          ),
+        )
+        .returning();
+
+      if (!record) return undefined;
+
+      await tx.insert(assetLifecycleEvents).values({
+        organizationId,
+        assetId,
+        eventType,
+        previousStatus: current.status,
+        newStatus,
+        description,
+        metadata,
+        actorUserId,
+      });
+
+      return record;
+    });
+  } catch (error) {
+    mapAssetDbError(error);
+  }
+};
+
+export const recordAssetLifecycleEvent = async (input: {
+  organizationId: string;
+  assetId: string;
+  actorUserId: string;
+  eventType:
+    | "maintenance_scheduled"
+    | "depreciation_recorded";
+  description: string;
+  metadata?: Record<string, unknown>;
+  occurredAt?: Date;
+}) => {
+  const [asset] = await db
+    .select({ id: assets.id, status: assets.status })
+    .from(assets)
+    .where(
+      and(
+        eq(assets.organizationId, input.organizationId),
+        eq(assets.id, input.assetId),
+        isNull(assets.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!asset) return undefined;
+
+  const [event] = await db
+    .insert(assetLifecycleEvents)
+    .values({
+      organizationId: input.organizationId,
+      assetId: input.assetId,
+      eventType: input.eventType,
+      previousStatus: asset.status,
+      newStatus: asset.status,
+      description: input.description,
+      metadata: input.metadata ?? {},
+      actorUserId: input.actorUserId,
+      occurredAt: input.occurredAt ?? new Date(),
+    })
+    .returning();
+
+  return event;
+};
+
+export const disposeAssetById = async (
+  organizationId: string,
+  assetId: string,
+  actorUserId: string,
+  payload: DisposeAssetInput,
+) => {
+  try {
+    return await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(assets)
+        .where(
+          and(
+            eq(assets.organizationId, organizationId),
+            eq(assets.id, assetId),
+            isNull(assets.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!current) return undefined;
+      if (current.status === "disposed") {
+        throw new ConflictError("Asset is already disposed");
+      }
+
+      const [disposal] = await tx
+        .insert(assetDisposals)
+        .values({
+          organizationId,
+          assetId,
+          method: payload.method,
+          reason: payload.reason,
+          proceeds: String(payload.proceeds),
+          disposedAt: payload.disposedAt ?? new Date(),
+          disposedByUserId: actorUserId,
+          approvedByUserId: payload.approvedByUserId ?? null,
+          notes: payload.notes ?? null,
+        })
+        .returning();
+
+      const [asset] = await tx
+        .update(assets)
+        .set({
+          status: "disposed",
+          assignedTo: null,
+          updatedByUserId: actorUserId,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(assets.organizationId, organizationId),
+            eq(assets.id, assetId),
+            isNull(assets.deletedAt),
+          ),
+        )
+        .returning();
+
+      if (!asset || !disposal) {
+        throw new DatabaseError("Failed to dispose asset", false);
+      }
+
+      await tx.insert(assetLifecycleEvents).values({
+        organizationId,
+        assetId,
+        eventType: "disposed",
+        previousStatus: current.status,
+        newStatus: "disposed",
+        description: payload.reason,
+        metadata: {
+          disposalId: disposal.id,
+          method: disposal.method,
+          proceeds: disposal.proceeds,
+          previousAssignedTo: current.assignedTo,
+        },
+        actorUserId,
+        occurredAt: disposal.disposedAt,
+      });
+
+      return { asset, disposal };
+    });
+  } catch (error) {
+    mapAssetDbError(error);
+  }
+};
+
+export const restoreAssetById = async (
+  organizationId: string,
+  assetId: string,
+  actorUserId: string,
+  payload: RestoreAssetInput,
+) => {
+  try {
+    return await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(assets)
+        .where(
+          and(
+            eq(assets.organizationId, organizationId),
+            eq(assets.id, assetId),
+          ),
+        )
+        .limit(1);
+
+      if (!current) return undefined;
+      if (!current.deletedAt && current.status !== "disposed") {
+        throw new ConflictError("Asset is already active in the lifecycle");
+      }
+
+      const [asset] = await tx
+        .update(assets)
+        .set({
+          status: payload.status,
+          deletedAt: null,
+          updatedByUserId: actorUserId,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(assets.organizationId, organizationId),
+            eq(assets.id, assetId),
+          ),
+        )
+        .returning();
+
+      if (!asset) return undefined;
+
+      await tx.insert(assetLifecycleEvents).values({
+        organizationId,
+        assetId,
+        eventType: "restored",
+        previousStatus: current.status,
+        newStatus: payload.status,
+        description: payload.reason,
+        metadata: {
+          wasDeleted: Boolean(current.deletedAt),
+        },
+        actorUserId,
+      });
+
+      return asset;
+    });
+  } catch (error) {
+    mapAssetDbError(error);
+  }
+};
+
+export const listAssetLifecycleEvents = async (
+  organizationId: string,
+  assetId: string,
+  query: AssetLifecycleQuery,
+) => {
+  const filters: SQL[] = [
+    eq(assetLifecycleEvents.organizationId, organizationId),
+    eq(assetLifecycleEvents.assetId, assetId),
+  ];
+  if (query.eventType) {
+    filters.push(eq(assetLifecycleEvents.eventType, query.eventType));
+  }
+
+  const whereClause = and(...filters);
+  const offset = (query.page - 1) * query.limit;
+  const [[totalResult], rows] = await Promise.all([
+    db
+      .select({ total: count() })
+      .from(assetLifecycleEvents)
+      .where(whereClause),
+    db
+      .select()
+      .from(assetLifecycleEvents)
+      .where(whereClause)
+      .orderBy(
+        desc(assetLifecycleEvents.occurredAt),
+        desc(assetLifecycleEvents.id),
+      )
+      .limit(query.limit)
+      .offset(offset),
+  ]);
+
+  const total = Number(totalResult?.total ?? 0);
+  return {
+    data: rows,
+    pagination: {
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / query.limit)),
+    },
+  };
+};
+
+export const listAssetDisposals = async (
+  organizationId: string,
+  assetId: string,
+) =>
+  db
+    .select()
+    .from(assetDisposals)
+    .where(
+      and(
+        eq(assetDisposals.organizationId, organizationId),
+        eq(assetDisposals.assetId, assetId),
+      ),
+    )
+    .orderBy(desc(assetDisposals.disposedAt));
+
 export const listAssetDepreciationSnapshots = async (
   organizationId: string,
   assetId: string,
@@ -496,6 +910,103 @@ export const listAssetDepreciationSnapshots = async (
       ),
     )
     .orderBy(desc(assetDepreciationSnapshots.fiscalYear));
+};
+
+export const recordAssetDepreciation = async (
+  organizationId: string,
+  assetId: string,
+  actorUserId: string,
+  payload: RecordAssetDepreciationInput,
+) => {
+  try {
+    return await db.transaction(async (tx) => {
+      const [asset] = await tx
+        .select()
+        .from(assets)
+        .where(
+          and(
+            eq(assets.organizationId, organizationId),
+            eq(assets.id, assetId),
+            isNull(assets.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!asset) return undefined;
+      if (!asset.isDepreciable) {
+        throw new ConflictError("Asset is not marked as depreciable");
+      }
+
+      const [snapshot] = await tx
+        .insert(assetDepreciationSnapshots)
+        .values({
+          organizationId,
+          assetId,
+          fiscalYear: payload.fiscalYear,
+          periodUsedPriorYears: payload.periodUsedPriorYears,
+          periodUsedCurrentYear: payload.periodUsedCurrentYear,
+          accumulatedDepreciationBf: String(payload.accumulatedDepreciationBf),
+          yearlyDepCharge: String(payload.yearlyDepCharge),
+          totalAccumulatedDepreciation: String(
+            payload.totalAccumulatedDepreciation,
+          ),
+          depreciationMethod: payload.depreciationMethod,
+          runDate: payload.runDate ?? new Date(),
+          createdByUserId: actorUserId,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [
+            assetDepreciationSnapshots.organizationId,
+            assetDepreciationSnapshots.assetId,
+            assetDepreciationSnapshots.fiscalYear,
+          ],
+          set: {
+            periodUsedPriorYears: payload.periodUsedPriorYears,
+            periodUsedCurrentYear: payload.periodUsedCurrentYear,
+            accumulatedDepreciationBf: String(
+              payload.accumulatedDepreciationBf,
+            ),
+            yearlyDepCharge: String(payload.yearlyDepCharge),
+            totalAccumulatedDepreciation: String(
+              payload.totalAccumulatedDepreciation,
+            ),
+            depreciationMethod: payload.depreciationMethod,
+            runDate: payload.runDate ?? new Date(),
+            createdByUserId: actorUserId,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+
+      if (!snapshot) {
+        throw new DatabaseError("Failed to record depreciation", false);
+      }
+
+      await tx.insert(assetLifecycleEvents).values({
+        organizationId,
+        assetId,
+        eventType: "depreciation_recorded",
+        previousStatus: asset.status,
+        newStatus: asset.status,
+        description: `Depreciation recorded for fiscal year ${payload.fiscalYear}`,
+        metadata: {
+          snapshotId: snapshot.id,
+          fiscalYear: payload.fiscalYear,
+          yearlyDepCharge: payload.yearlyDepCharge,
+          totalAccumulatedDepreciation:
+            payload.totalAccumulatedDepreciation,
+          depreciationMethod: payload.depreciationMethod,
+        },
+        actorUserId,
+        occurredAt: snapshot.runDate,
+      });
+
+      return snapshot;
+    });
+  } catch (error) {
+    mapAssetDbError(error);
+  }
 };
 
 export const listWarrantyExpiringAssets = async (
