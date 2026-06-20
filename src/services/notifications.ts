@@ -16,14 +16,23 @@ export const createInAppNotification = async (input: Parameters<typeof createNot
   try {
     const notification = await createNotification(input);
 
-    void sendEmailForNotification(input).catch((error) => {
+    logger.info("In-app notification created", {
+      notificationId: notification?.id,
+      organizationId: input.organizationId,
+      userId: input.userId,
+      type: input.type,
+    });
+
+    try {
+      await sendEmailForNotification(input);
+    } catch (error) {
       logger.error("Failed to send notification email", {
         organizationId: input.organizationId,
         userId: input.userId,
         type: input.type,
         error: error instanceof Error ? error.message : String(error),
       });
-    });
+    }
 
     return notification;
   } catch (error) {
@@ -45,6 +54,14 @@ export const notifyOrganizationAdmins = async (input: {
   metadata?: Record<string, unknown>;
 }) => {
   const admins = await findOrganizationAdminRecipients(input.organizationId);
+
+  if (admins.length === 0) {
+    logger.warn("Organization notification skipped because no admin recipient was found", {
+      organizationId: input.organizationId,
+      type: input.type,
+    });
+    return;
+  }
 
   await Promise.all(
     admins.map((admin) =>
@@ -111,6 +128,13 @@ const sendEmailForNotification = async (
     });
     return;
   }
+
+  logger.info("Attempting notification email delivery", {
+    organizationId: input.organizationId,
+    userId: input.userId,
+    type: input.type,
+    to: recipient.email,
+  });
 
   const redirectUrl = input.metadata?.redirectUrl;
   const actionUrl =

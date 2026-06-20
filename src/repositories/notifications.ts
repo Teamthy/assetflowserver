@@ -1,7 +1,13 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import { notifications } from "../model/notification";
-import { organizationUsers, roles, userRoles, users } from "../model/user";
+import {
+  organizations,
+  organizationUsers,
+  roles,
+  userRoles,
+  users,
+} from "../model/user";
 import { NotificationsQuery } from "../types/notifications";
 
 export const createNotification = async (input: {
@@ -52,6 +58,10 @@ export const findOrganizationAdminRecipients = async (organizationId: string) =>
     })
     .from(users)
     .innerJoin(
+      organizations,
+      eq(organizations.id, organizationId),
+    )
+    .innerJoin(
       organizationUsers,
       and(
         eq(organizationUsers.userId, users.id),
@@ -70,7 +80,10 @@ export const findOrganizationAdminRecipients = async (organizationId: string) =>
     .where(
       and(
         eq(organizationUsers.organizationId, organizationId),
-        eq(roles.name, "admin"),
+        or(
+          eq(roles.name, "admin"),
+          eq(organizations.ownerUserId, users.id),
+        ),
       ),
     );
 };
