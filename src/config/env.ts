@@ -24,8 +24,16 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((value) => value === "true"),
-  CORS_ORIGIN: z.string().default("http://localhost:3000"),
-  FRONTEND_URL: z.string().url().default("http://localhost:3000"),
+  CORS_ORIGIN: z
+    .string()
+    .default("http://localhost:3000,http://localhost:8080")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+    ),
+  FRONTEND_URL: z.string().url().default("http://localhost:8080"),
   RESEND_API_KEY: z.string().min(1),
   RESEND_FROM_EMAIL: z.email(),
   SUPPORT_EMAIL: z.email().default("support@example.com"),

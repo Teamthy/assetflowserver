@@ -294,6 +294,10 @@ export const requestPasswordReset = async (input: { email: string }) => {
     expiryMinutes: 30,
   });
 
+  if (env.LOG_OTP_FOR_DEBUG === true && env.NODE_ENV !== "production") {
+    logger.info(`OTP email sent: ${user.email} -> ${rawToken}`);
+  }
+
   const [membership] = await db
     .select({ organizationId: organizationUsers.organizationId })
     .from(organizationUsers)
