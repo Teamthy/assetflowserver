@@ -66,4 +66,12 @@ export type AssetAuditSummary = {
   missingCategoryCount: number;
   disposedCount: number;
   maintenanceCount: number;
+  recognitionSummary: Array<{
+    accountingTreatment:
+      | "capitalized"
+      | "expensed"
+      | "tracked_non_capitalized"
+      | "pending_review";
+    count: number;
+  }>;
 };

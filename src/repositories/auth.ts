@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import { db } from "../db";
 import { env } from "../config/env";
+import { AuthenticationError } from "../utils/error";
 import {
   organizationUsers,
   organizations,
@@ -103,6 +104,48 @@ export const revokeRefreshTokensForUser = async (userId: string, organizationId:
     .where(and(eq(refreshTokens.userId, userId), eq(refreshTokens.organizationId, organizationId)));
 };
 
+export const revokeAllRefreshTokensForUser = async (userId: string) => {
+  await db
+    .update(refreshTokens)
+    .set({ isRevoked: true, revokedAt: new Date() })
+    .where(eq(refreshTokens.userId, userId));
+};
+
+export const rotateRefreshToken = async (input: {
+  currentRawToken: string;
+  userId: string;
+  organizationId: string;
+  nextRawToken: string;
+  nextExpiresAt: Date;
+}) => {
+  const currentTokenHash = hashToken(input.currentRawToken);
+
+  await db.transaction(async (tx) => {
+    const revokedTokens = await tx
+      .update(refreshTokens)
+      .set({ isRevoked: true, revokedAt: new Date() })
+      .where(
+        and(
+          eq(refreshTokens.tokenHash, currentTokenHash),
+          eq(refreshTokens.isRevoked, false),
+          gt(refreshTokens.expiresAt, new Date()),
+        ),
+      )
+      .returning({ id: refreshTokens.id });
+
+    if (revokedTokens.length === 0) {
+      throw new AuthenticationError("Refresh token has been revoked or expired");
+    }
+
+    await tx.insert(refreshTokens).values({
+      userId: input.userId,
+      organizationId: input.organizationId,
+      tokenHash: hashToken(input.nextRawToken),
+      expiresAt: input.nextExpiresAt,
+    });
+  });
+};
+
 export const createPasswordResetToken = async (userId: string, rawToken: string, expiresAt: Date) => {
   await db.insert(passwordResetTokens).values({
     userId,
@@ -141,14 +184,14 @@ export const createOrganizationWithOwner = async (input: {
       { key: "reports.read", description: "View reports" },
     ];
 
-    let [starterPlan] = await tx.select().from(plans).where(eq(plans.code, "starter")).limit(1);
-
-    if (!starterPlan) {
-      [starterPlan] = await tx
-        .insert(plans)
-        .values({ name: "Starter", code: "starter", maxStaff: 10 })
-        .returning();
-    }
+    const [starterPlan] = await tx
+      .insert(plans)
+      .values({ name: "Starter", code: "starter", maxStaff: 10 })
+      .onConflictDoUpdate({
+        target: plans.code,
+        set: { name: "Starter" },
+      })
+      .returning();
 
     const [owner] = await tx
       .insert(users)

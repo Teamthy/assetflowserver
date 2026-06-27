@@ -1,18 +1,28 @@
 import ExcelJS from "exceljs";
-import { createAsset } from "../repositories/assets";
+import { bulkCreateAssetsAtomic } from "../repositories/assets";
 import { findOrganizationById } from "../repositories/organizations";
-import { CreateAssetInput } from "../types/assets";
 import { ValidationError } from "../utils/error";
 import { logger } from "../utils/logger";
 import { importAssetRowSchema } from "../validators/assets";
 import { createInAppNotification } from "./notifications";
+import { buildAssetRecognitionPersistencePayload } from "./assets.recognition.service";
 
 type ImportResult = {
   totalRows: number;
   insertedCount: number;
   failedCount: number;
   failures: Array<{ row: number; message: string }>;
+  successfulRows: Array<{
+    row: number;
+    assetName: string;
+    assetTag: string;
+    decision: string;
+    accountingTreatment: string;
+    reasons: string[];
+  }>;
 };
+
+type AssetImportPayload = Parameters<typeof bulkCreateAssetsAtomic>[2][number];
 
 const unwrapExcelCellValue = (value: ExcelJS.CellValue): unknown => {
   if (value === null || value === undefined) return undefined;
@@ -50,6 +60,18 @@ const readCellNumber = (value: ExcelJS.CellValue): number | undefined => {
     const parsed = Number(unwrapped);
     return Number.isFinite(parsed) ? parsed : undefined;
   }
+  return undefined;
+};
+
+const readCellBoolean = (value: ExcelJS.CellValue): boolean | undefined => {
+  const unwrapped = unwrapExcelCellValue(value);
+  if (typeof unwrapped === "boolean") return unwrapped;
+  if (typeof unwrapped === "number") return unwrapped === 1;
+  if (typeof unwrapped !== "string") return undefined;
+
+  const normalized = unwrapped.trim().toLowerCase();
+  if (["true", "yes", "y", "1"].includes(normalized)) return true;
+  if (["false", "no", "n", "0"].includes(normalized)) return false;
   return undefined;
 };
 
@@ -91,6 +113,7 @@ export const importAssetsFromExcel = async (
       insertedCount: 0,
       failedCount: 1,
       failures: [{ row: 0, message: "Worksheet not found" }],
+      successfulRows: [],
     };
   }
 
@@ -102,8 +125,13 @@ export const importAssetsFromExcel = async (
     insertedCount: 0,
     failedCount: 0,
     failures: [],
+    successfulRows: [],
   };
-  const validRows: Array<{ row: number; payload: CreateAssetInput }> = [];
+  const validRows: Array<{
+    row: number;
+    payload: AssetImportPayload;
+    recognition: ReturnType<typeof buildAssetRecognitionPersistencePayload>["recognition"];
+  }> = [];
 
   for (const row of rows) {
     const rowData = {
@@ -115,6 +143,9 @@ export const importAssetsFromExcel = async (
       branchId: readCellString(row.getCell(6).value),
       assignedTo: readCellString(row.getCell(7).value),
       status: readCellString(row.getCell(8).value),
+      expectedUsefulLifeMonths: readCellNumber(row.getCell(9).value),
+      hasFutureEconomicBenefit: readCellBoolean(row.getCell(10).value),
+      costCanBeReliablyMeasured: readCellBoolean(row.getCell(11).value),
     };
 
     const parsed = importAssetRowSchema.safeParse(rowData);
@@ -137,27 +168,52 @@ export const importAssetsFromExcel = async (
       continue;
     }
 
+    const recognitionPayload = buildAssetRecognitionPersistencePayload({
+      purchaseCost: parsed.data.purchaseCost,
+      expectedUsefulLifeMonths: parsed.data.expectedUsefulLifeMonths,
+      hasFutureEconomicBenefit: parsed.data.hasFutureEconomicBenefit,
+      costCanBeReliablyMeasured: parsed.data.costCanBeReliablyMeasured,
+    });
+
     validRows.push({
       row: row.number,
       payload: {
         ...parsed.data,
         status: parsed.data.status ?? "active",
         condition: "good",
-        isDepreciable: true,
+        ...recognitionPayload.payload,
       },
+      recognition: recognitionPayload.recognition,
     });
   }
 
-  for (const entry of validRows) {
+  if (validRows.length > 0) {
     try {
-      await createAsset(organizationId, actorUserId, entry.payload);
-      result.insertedCount += 1;
+      await bulkCreateAssetsAtomic(
+        organizationId,
+        actorUserId,
+        validRows.map((entry) => entry.payload),
+      );
+      result.insertedCount = validRows.length;
+      result.successfulRows.push(
+        ...validRows.map((entry) => ({
+          row: entry.row,
+          assetName: entry.payload.name,
+          assetTag: entry.payload.assetTag,
+          decision: entry.recognition.decision,
+          accountingTreatment: entry.recognition.accountingTreatment,
+          reasons: entry.recognition.reasons,
+        })),
+      );
     } catch (error) {
-      result.failedCount += 1;
-      result.failures.push({
-        row: entry.row,
-        message: error instanceof Error ? error.message : "Insert failed",
-      });
+      const message = error instanceof Error ? error.message : "Bulk insert failed";
+      result.failedCount += validRows.length;
+      result.failures.push(
+        ...validRows.map((entry) => ({
+          row: entry.row,
+          message,
+        })),
+      );
     }
   }
 

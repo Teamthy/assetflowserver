@@ -84,6 +84,12 @@ const assetRecord = {
   condition: "good",
   purchaseCost: "1500.00",
   isDepreciable: true,
+  hasFutureEconomicBenefit: true,
+  costCanBeReliablyMeasured: true,
+  recognitionStatus: "recognized",
+  accountingTreatment: "capitalized",
+  recognitionReasons: ["Asset meets recognition and capitalization criteria."],
+  capitalizationThresholdApplied: "50000",
 };
 
 describe("assets service", () => {
@@ -106,6 +112,9 @@ describe("assets service", () => {
       status: "active",
       condition: "good",
       isDepreciable: true,
+      hasFutureEconomicBenefit: true,
+      costCanBeReliablyMeasured: true,
+      expectedUsefulLifeMonths: 36,
     });
 
     expect(createAsset).toHaveBeenCalledWith(
@@ -137,6 +146,9 @@ describe("assets service", () => {
         status: "active",
         condition: "good",
         isDepreciable: true,
+        hasFutureEconomicBenefit: true,
+        costCanBeReliablyMeasured: true,
+        expectedUsefulLifeMonths: 36,
       }),
     ).rejects.toBeInstanceOf(ValidationError);
 

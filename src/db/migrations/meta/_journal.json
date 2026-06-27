@@ -71,6 +71,13 @@
       "when": 1781917489713,
       "tag": "0009_lively_crusher_hogan",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782576744299,
+      "tag": "0010_gorgeous_supreme_intelligence",
+      "breakpoints": true
     }
   ]
 }

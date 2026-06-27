@@ -6,6 +6,7 @@ import {
   eq,
   gte,
   ilike,
+  isNotNull,
   isNull,
   lte,
   or,
@@ -32,6 +33,25 @@ import {
   UpdateAssetInput,
 } from "../types/assets";
 import { AppError, ConflictError, DatabaseError } from "../utils/error";
+
+type AssetRecognitionPersistenceInput = {
+  hasFutureEconomicBenefit?: boolean;
+  costCanBeReliablyMeasured?: boolean;
+  recognitionStatus?: "recognized" | "not_recognized" | "pending_review";
+  accountingTreatment?:
+    | "capitalized"
+    | "expensed"
+    | "tracked_non_capitalized"
+    | "pending_review";
+  recognitionReasons?: string[];
+  capitalizationThresholdApplied?: string | null;
+};
+
+type CreateAssetRepositoryInput = CreateAssetInput &
+  AssetRecognitionPersistenceInput;
+
+type UpdateAssetRepositoryInput = UpdateAssetInput &
+  AssetRecognitionPersistenceInput;
 
 type PgLikeError = {
   code?: string;
@@ -128,13 +148,14 @@ const buildAssetFilters = (
   }
 
   if (query?.search) {
+    const searchPattern = `%${query.search}%`;
     filters.push(
       or(
-        ilike(assets.name, `%${query.search}%`),
-        ilike(assets.assetTag, `%${query.search}%`),
-        ilike(assets.serialNumber, `%${query.search}%`),
-        ilike(assets.description, `%${query.search}%`),
-      )!,
+        ilike(assets.name, searchPattern),
+        ilike(assets.assetTag, searchPattern),
+        sql`${assets.serialNumber} ilike ${searchPattern}`,
+        sql`${assets.description} ilike ${searchPattern}`,
+      ) ?? sql`false`,
     );
   }
 
@@ -152,7 +173,7 @@ const buildAssetFilters = (
 export const createAsset = async (
   organizationId: string,
   actorUserId: string,
-  payload: CreateAssetInput,
+  payload: CreateAssetRepositoryInput,
 ) => {
   try {
     return await db.transaction(async (tx) => {
@@ -201,7 +222,7 @@ export const createAsset = async (
 export const bulkCreateAssetsAtomic = async (
   organizationId: string,
   actorUserId: string,
-  payloads: CreateAssetInput[],
+  payloads: CreateAssetRepositoryInput[],
 ) => {
   if (payloads.length === 0) {
     return [];
@@ -228,6 +249,22 @@ export const bulkCreateAssetsAtomic = async (
       if (inserted.length !== values.length) {
         throw new DatabaseError("Bulk insert was not fully applied", false);
       }
+
+      await tx.insert(assetLifecycleEvents).values(
+        inserted.map((record) => ({
+          organizationId,
+          assetId: record.id,
+          eventType: "registered" as const,
+          newStatus: record.status,
+          description: "Asset registered (bulk import)",
+          metadata: {
+            assetTag: record.assetTag,
+            assignedTo: record.assignedTo,
+            branchId: record.branchId,
+          },
+          actorUserId,
+        })),
+      );
 
       return inserted;
     });
@@ -319,7 +356,7 @@ export const updateAssetById = async (
   organizationId: string,
   assetId: string,
   actorUserId: string,
-  payload: UpdateAssetInput,
+  payload: UpdateAssetRepositoryInput,
 ) => {
   const updatePayload: Partial<typeof assets.$inferInsert> = {
     updatedByUserId: actorUserId,
@@ -343,6 +380,25 @@ export const updateAssetById = async (
   if (payload.qrCodeUrl !== undefined) updatePayload.qrCodeUrl = payload.qrCodeUrl;
   if (payload.isDepreciable !== undefined) {
     updatePayload.isDepreciable = payload.isDepreciable;
+  }
+  if (payload.hasFutureEconomicBenefit !== undefined) {
+    updatePayload.hasFutureEconomicBenefit = payload.hasFutureEconomicBenefit;
+  }
+  if (payload.costCanBeReliablyMeasured !== undefined) {
+    updatePayload.costCanBeReliablyMeasured = payload.costCanBeReliablyMeasured;
+  }
+  if (payload.recognitionStatus !== undefined) {
+    updatePayload.recognitionStatus = payload.recognitionStatus;
+  }
+  if (payload.accountingTreatment !== undefined) {
+    updatePayload.accountingTreatment = payload.accountingTreatment;
+  }
+  if (payload.recognitionReasons !== undefined) {
+    updatePayload.recognitionReasons = payload.recognitionReasons;
+  }
+  if (payload.capitalizationThresholdApplied !== undefined) {
+    updatePayload.capitalizationThresholdApplied =
+      payload.capitalizationThresholdApplied;
   }
 
   if (payload.purchaseCost !== undefined) {
@@ -658,36 +714,40 @@ export const recordAssetLifecycleEvent = async (input: {
   metadata?: Record<string, unknown>;
   occurredAt?: Date;
 }) => {
-  const [asset] = await db
-    .select({ id: assets.id, status: assets.status })
-    .from(assets)
-    .where(
-      and(
-        eq(assets.organizationId, input.organizationId),
-        eq(assets.id, input.assetId),
-        isNull(assets.deletedAt),
-      ),
-    )
-    .limit(1);
+  try {
+    const [asset] = await db
+      .select({ id: assets.id, status: assets.status })
+      .from(assets)
+      .where(
+        and(
+          eq(assets.organizationId, input.organizationId),
+          eq(assets.id, input.assetId),
+          isNull(assets.deletedAt),
+        ),
+      )
+      .limit(1);
 
-  if (!asset) return undefined;
+    if (!asset) return undefined;
 
-  const [event] = await db
-    .insert(assetLifecycleEvents)
-    .values({
-      organizationId: input.organizationId,
-      assetId: input.assetId,
-      eventType: input.eventType,
-      previousStatus: asset.status,
-      newStatus: asset.status,
-      description: input.description,
-      metadata: input.metadata ?? {},
-      actorUserId: input.actorUserId,
-      occurredAt: input.occurredAt ?? new Date(),
-    })
-    .returning();
+    const [event] = await db
+      .insert(assetLifecycleEvents)
+      .values({
+        organizationId: input.organizationId,
+        assetId: input.assetId,
+        eventType: input.eventType,
+        previousStatus: asset.status,
+        newStatus: asset.status,
+        description: input.description,
+        metadata: input.metadata ?? {},
+        actorUserId: input.actorUserId,
+        occurredAt: input.occurredAt ?? new Date(),
+      })
+      .returning();
 
-  return event;
+    return event;
+  } catch (error) {
+    mapAssetDbError(error);
+  }
 };
 
 export const disposeAssetById = async (
@@ -811,11 +871,16 @@ export const restoreAssetById = async (
           and(
             eq(assets.organizationId, organizationId),
             eq(assets.id, assetId),
+            or(isNotNull(assets.deletedAt), eq(assets.status, "disposed")),
           ),
         )
         .returning();
 
-      if (!asset) return undefined;
+      if (!asset) {
+        throw new ConflictError(
+          "Asset restore failed: concurrent modification detected",
+        );
+      }
 
       await tx.insert(assetLifecycleEvents).values({
         organizationId,
@@ -936,6 +1001,9 @@ export const recordAssetDepreciation = async (
       if (!asset.isDepreciable) {
         throw new ConflictError("Asset is not marked as depreciable");
       }
+      if (asset.accountingTreatment !== "capitalized") {
+        throw new ConflictError("Only capitalized assets can be depreciated");
+      }
 
       const [snapshot] = await tx
         .insert(assetDepreciationSnapshots)
@@ -1040,29 +1108,45 @@ export const getAssetAuditSummary = async (
   }
 
   const whereClause = and(...filters);
-  const [result] = await db
-    .select({
-      totalAssets: count(),
-      missingSerialNumberCount:
-        sql<number>`count(case when ${assets.serialNumber} is null then 1 end)`,
-      missingPurchaseDateCount:
-        sql<number>`count(case when ${assets.purchaseDate} is null then 1 end)`,
-      missingCategoryCount:
-        sql<number>`count(case when ${assets.category} is null then 1 end)`,
-      disposedCount:
-        sql<number>`count(case when ${assets.status} = 'disposed' then 1 end)`,
-      maintenanceCount:
-        sql<number>`count(case when ${assets.status} = 'maintenance' then 1 end)`,
-    })
-    .from(assets)
-    .where(whereClause);
+  const [result, recognitionRows] = await Promise.all([
+    db
+      .select({
+        totalAssets: count(),
+        missingSerialNumberCount:
+          sql<number>`count(case when ${assets.serialNumber} is null then 1 end)`,
+        missingPurchaseDateCount:
+          sql<number>`count(case when ${assets.purchaseDate} is null then 1 end)`,
+        missingCategoryCount:
+          sql<number>`count(case when ${assets.category} is null then 1 end)`,
+        disposedCount:
+          sql<number>`count(case when ${assets.status} = 'disposed' then 1 end)`,
+        maintenanceCount:
+          sql<number>`count(case when ${assets.status} = 'maintenance' then 1 end)`,
+      })
+      .from(assets)
+      .where(whereClause),
+    db
+      .select({
+        accountingTreatment: assets.accountingTreatment,
+        count: count(),
+      })
+      .from(assets)
+      .where(whereClause)
+      .groupBy(assets.accountingTreatment),
+  ]);
+
+  const [summary] = result;
 
   return {
-    totalAssets: Number(result?.totalAssets ?? 0),
-    missingSerialNumberCount: Number(result?.missingSerialNumberCount ?? 0),
-    missingPurchaseDateCount: Number(result?.missingPurchaseDateCount ?? 0),
-    missingCategoryCount: Number(result?.missingCategoryCount ?? 0),
-    disposedCount: Number(result?.disposedCount ?? 0),
-    maintenanceCount: Number(result?.maintenanceCount ?? 0),
+    totalAssets: Number(summary?.totalAssets ?? 0),
+    missingSerialNumberCount: Number(summary?.missingSerialNumberCount ?? 0),
+    missingPurchaseDateCount: Number(summary?.missingPurchaseDateCount ?? 0),
+    missingCategoryCount: Number(summary?.missingCategoryCount ?? 0),
+    disposedCount: Number(summary?.disposedCount ?? 0),
+    maintenanceCount: Number(summary?.maintenanceCount ?? 0),
+    recognitionSummary: recognitionRows.map((row) => ({
+      accountingTreatment: row.accountingTreatment,
+      count: Number(row.count ?? 0),
+    })),
   };
 };

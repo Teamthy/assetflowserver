@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import {
+  changePasswordSchema,
   loginSchema,
   logoutSchema,
   organizationLoginSchema,
@@ -98,6 +99,23 @@ export const resetPassword = async (req: Request, res: Response, next: NextFunct
   }
 };
 
+export const changePassword = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.auth?.userId) {
+      throw new AuthenticationError();
+    }
+    const payload = parseBody(changePasswordSchema, req.body);
+    const data = await authService.changePassword({
+      userId: req.auth.userId,
+      ...payload,
+    });
+    clearRefreshTokenCookie(res);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const refreshToken = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const bodyToken = parseBody(refreshTokenSchema, req.body ?? {}).refreshToken;
@@ -126,6 +144,22 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
       userId: req.auth.userId,
       organizationId: req.auth.organizationId,
       refreshToken,
+    });
+    clearRefreshTokenCookie(res);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const logoutAll = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.auth?.userId || !req.auth.organizationId) {
+      throw new AuthenticationError();
+    }
+    const data = await authService.logoutAll({
+      userId: req.auth.userId,
+      organizationId: req.auth.organizationId,
     });
     clearRefreshTokenCookie(res);
     res.status(200).json({ success: true, data });

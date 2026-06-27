@@ -37,6 +37,9 @@ import {
   notifyDepreciationRunCompleted,
   notifyWarrantyExpiringSoon,
 } from "./notifications";
+import {
+  buildAssetRecognitionPersistencePayload,
+} from "./assets.recognition.service";
 
 const assertBranchRequiredIfEnabled = async (
   organizationId: string,
@@ -93,7 +96,16 @@ export const createAssetService = async (
   payload: CreateAssetInput,
 ) => {
   await assertBranchRequiredIfEnabled(organizationId, payload.branchId);
-  const record = await createAsset(organizationId, actorUserId, payload);
+  const recognitionPayload = buildAssetRecognitionPersistencePayload({
+    purchaseCost: payload.purchaseCost,
+    expectedUsefulLifeMonths: payload.expectedUsefulLifeMonths,
+    hasFutureEconomicBenefit: payload.hasFutureEconomicBenefit,
+    costCanBeReliablyMeasured: payload.costCanBeReliablyMeasured,
+  });
+  const record = await createAsset(organizationId, actorUserId, {
+    ...payload,
+    ...recognitionPayload.payload,
+  });
   if (!record) {
     throw new NotFoundError("Asset");
   }
@@ -102,6 +114,7 @@ export const createAssetService = async (
     actorUserId,
     assetId: record.id,
     assetTag: record.assetTag,
+    accountingTreatment: record.accountingTreatment,
   });
   if (record.assignedTo) {
     await createInAppNotification({
@@ -149,7 +162,28 @@ export const updateAssetService = async (
   }
 
   const current = await getAssetByIdService(organizationId, assetId);
-  const record = await updateAssetById(organizationId, assetId, actorUserId, payload);
+  const recognitionFieldsChanged =
+    payload.purchaseCost !== undefined ||
+    payload.expectedUsefulLifeMonths !== undefined ||
+    payload.hasFutureEconomicBenefit !== undefined ||
+    payload.costCanBeReliablyMeasured !== undefined;
+
+  const recognitionPayload = recognitionFieldsChanged
+    ? buildAssetRecognitionPersistencePayload({
+        purchaseCost: payload.purchaseCost ?? current.purchaseCost,
+        expectedUsefulLifeMonths:
+          payload.expectedUsefulLifeMonths ?? current.expectedUsefulLifeMonths,
+        hasFutureEconomicBenefit:
+          payload.hasFutureEconomicBenefit ?? current.hasFutureEconomicBenefit,
+        costCanBeReliablyMeasured:
+          payload.costCanBeReliablyMeasured ?? current.costCanBeReliablyMeasured,
+      }).payload
+    : {};
+
+  const record = await updateAssetById(organizationId, assetId, actorUserId, {
+    ...payload,
+    ...recognitionPayload,
+  });
   if (!record) throw new NotFoundError("Asset");
   logger.info("Asset updated", { organizationId, actorUserId, assetId });
 

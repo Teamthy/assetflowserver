@@ -22,6 +22,10 @@ export const requireAuth = (req: Request, _res: Response, next: NextFunction) =>
       organizationId: string;
     };
 
+    if (!payload.userId || !payload.organizationId) {
+      return next(new AuthenticationError("Invalid token payload"));
+    }
+
     req.auth = payload;
     return next();
   } catch {

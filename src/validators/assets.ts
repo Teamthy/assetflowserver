@@ -47,6 +47,8 @@ const assetFieldsSchema = z.object({
   warrantyExpiryDate: isoDateInput.optional(),
   expectedUsefulLifeMonths: z.coerce.number().int().nonnegative().optional(),
   residualValue: z.coerce.number().nonnegative().optional(),
+  hasFutureEconomicBenefit: z.boolean().default(true),
+  costCanBeReliablyMeasured: z.boolean().default(true),
   qrCodeUrl: z.url().optional(),
   isDepreciable: z.boolean().default(true),
 });
@@ -161,6 +163,9 @@ export const importAssetRowSchema = z.object({
   branchId: uuidSchema.optional(),
   assignedTo: uuidSchema.optional(),
   status: assetStatusSchema.optional(),
+  expectedUsefulLifeMonths: z.coerce.number().int().nonnegative().optional(),
+  hasFutureEconomicBenefit: z.boolean().default(true),
+  costCanBeReliablyMeasured: z.boolean().default(true),
 });
 
 export const assetAuditQuerySchema = z.object({

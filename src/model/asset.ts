@@ -35,6 +35,19 @@ export const depreciationMethodEnum = pgEnum("depreciation_method", [
   "reducing_balance",
 ]);
 
+export const assetRecognitionStatusEnum = pgEnum("asset_recognition_status", [
+  "recognized",
+  "not_recognized",
+  "pending_review",
+]);
+
+export const assetAccountingTreatmentEnum = pgEnum("asset_accounting_treatment", [
+  "capitalized",
+  "expensed",
+  "tracked_non_capitalized",
+  "pending_review",
+]);
+
 export const assetLifecycleEventTypeEnum = pgEnum("asset_lifecycle_event_type", [
   "registered",
   "updated",
@@ -86,6 +99,26 @@ export const assets = pgTable(
     warrantyExpiryDate: timestamp("warranty_expiry_date", { withTimezone: true }),
     expectedUsefulLifeMonths: integer("expected_useful_life_months"),
     residualValue: numeric("residual_value", { precision: 18, scale: 2 }),
+    hasFutureEconomicBenefit: boolean("has_future_economic_benefit")
+      .notNull()
+      .default(true),
+    costCanBeReliablyMeasured: boolean("cost_can_be_reliably_measured")
+      .notNull()
+      .default(true),
+    recognitionStatus: assetRecognitionStatusEnum("recognition_status")
+      .notNull()
+      .default("pending_review"),
+    accountingTreatment: assetAccountingTreatmentEnum("accounting_treatment")
+      .notNull()
+      .default("pending_review"),
+    recognitionReasons: jsonb("recognition_reasons")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    capitalizationThresholdApplied: numeric("capitalization_threshold_applied", {
+      precision: 18,
+      scale: 2,
+    }),
     qrCodeUrl: text("qr_code_url"),
     isDepreciable: boolean("is_depreciable").notNull().default(true),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
@@ -118,6 +151,10 @@ export const assets = pgTable(
     assetsOrgDeletedAtIdx: index("assets_org_deleted_at_idx").on(
       table.organizationId,
       table.deletedAt,
+    ),
+    assetsOrgAccountingTreatmentIdx: index("assets_org_accounting_treatment_idx").on(
+      table.organizationId,
+      table.accountingTreatment,
     ),
     assetsPositivePurchaseCostChk: check(
       "assets_positive_purchase_cost_chk",

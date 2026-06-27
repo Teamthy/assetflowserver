@@ -22,18 +22,28 @@ export const registerSchema = z.discriminatedUnion("accountType", [
 
 export const loginSchema = z.object({
   email: z.email(),
-  password: z.string().min(8),
+  password: z.string().min(1),
 });
 
 export const organizationLoginSchema = z.object({
   organizationSlug: z.string().min(2),
   email: z.email(),
-  password: z.string().min(8),
+  password: z.string().min(1),
 });
 
 export const verifyPasswordSchema = z.object({
   password: z.string().min(8),
 });
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1),
+    newPassword: z.string().min(8),
+  })
+  .refine((value) => value.currentPassword !== value.newPassword, {
+    message: "New password must be different from current password",
+    path: ["newPassword"],
+  });
 
 export const requestResetPasswordSchema = z.object({
   email: z.email(),

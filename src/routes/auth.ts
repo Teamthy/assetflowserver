@@ -39,7 +39,17 @@ authRouter.post(
   authController.requestResetPassword,
 );
 authRouter.post(
+  "/forgot-password",
+  resetRateLimit,
+  authController.requestResetPassword,
+);
+authRouter.post(
   "/password-reset/confirm",
+  resetRateLimit,
+  authController.resetPassword,
+);
+authRouter.post(
+  "/reset-password",
   resetRateLimit,
   authController.resetPassword,
 );
@@ -48,4 +58,11 @@ authRouter.post(
   refreshRateLimit,
   authController.refreshToken,
 );
+authRouter.post(
+  "/refresh",
+  refreshRateLimit,
+  authController.refreshToken,
+);
 authRouter.post("/logout", requireAuth, authController.logout);
+authRouter.post("/logout-all", requireAuth, authController.logoutAll);
+authRouter.post("/change-password", requireAuth, authController.changePassword);
