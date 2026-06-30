@@ -1,10 +1,14 @@
 import { NextFunction, Request, Response } from "express";
 import {
   assetAuditQuerySchema,
+  assetLifecycleQuerySchema,
   assetListQuerySchema,
   assetParamsSchema,
   createAssetSchema,
+  disposeAssetSchema,
   exportAssetsQuerySchema,
+  recordAssetDepreciationSchema,
+  restoreAssetSchema,
   transferAssetSchema,
   updateAssetSchema,
 } from "../validators/assets";
@@ -95,6 +99,81 @@ export const transferAsset = async (req: Request, res: Response, next: NextFunct
     const params = parseData(assetParamsSchema, req.params);
     const payload = parseData(transferAssetSchema, req.body);
     const data = await assetsService.transferAssetService(auth.organizationId, params.id, auth.userId, payload);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const disposeAsset = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const auth = requireAuthContext(req);
+    const params = parseData(assetParamsSchema, req.params);
+    const payload = parseData(disposeAssetSchema, req.body);
+    const data = await assetsService.disposeAssetService(
+      auth.organizationId,
+      params.id,
+      auth.userId,
+      payload,
+    );
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const restoreAsset = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const auth = requireAuthContext(req);
+    const params = parseData(assetParamsSchema, req.params);
+    const payload = parseData(restoreAssetSchema, req.body);
+    const data = await assetsService.restoreAssetService(
+      auth.organizationId,
+      params.id,
+      auth.userId,
+      payload,
+    );
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const recordAssetDepreciation = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const auth = requireAuthContext(req);
+    const params = parseData(assetParamsSchema, req.params);
+    const payload = parseData(recordAssetDepreciationSchema, req.body);
+    const data = await assetsService.recordAssetDepreciationService(
+      auth.organizationId,
+      params.id,
+      auth.userId,
+      payload,
+    );
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAssetTimeline = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const auth = requireAuthContext(req);
+    const params = parseData(assetParamsSchema, req.params);
+    const query = parseData(assetLifecycleQuerySchema, req.query);
+    const data = await assetsService.getAssetTimelineService(
+      auth.organizationId,
+      params.id,
+      query,
+    );
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);

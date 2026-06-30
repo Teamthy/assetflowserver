@@ -89,3 +89,43 @@ export const sendOnboardingWelcomeEmail = async (input: {
     resendEmailId: data?.id,
   });
 };
+
+export const sendNotificationEmail = async (input: {
+  to: string;
+  userName: string;
+  title: string;
+  message: string;
+  actionUrl?: string;
+}) => {
+  const html = await renderTemplate("notification.hbs", {
+    userName: input.userName,
+    title: input.title,
+    message: input.message,
+    actionUrl: input.actionUrl ?? "",
+    supportEmail: env.SUPPORT_EMAIL,
+  });
+
+  const { data, error } = await resend.emails.send({
+    from: env.RESEND_FROM_EMAIL,
+    to: input.to,
+    subject: input.title,
+    html,
+  });
+
+  if (error) {
+    logger.error("Resend notification email send failed", {
+      to: input.to,
+      from: env.RESEND_FROM_EMAIL,
+      subject: input.title,
+      resendError: error,
+    });
+    throw new Error(`Failed to send notification email: ${JSON.stringify(error)}`);
+  }
+
+  logger.info("Resend notification email send success", {
+    to: input.to,
+    from: env.RESEND_FROM_EMAIL,
+    subject: input.title,
+    resendEmailId: data?.id,
+  });
+};

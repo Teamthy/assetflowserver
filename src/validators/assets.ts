@@ -47,6 +47,8 @@ const assetFieldsSchema = z.object({
   warrantyExpiryDate: isoDateInput.optional(),
   expectedUsefulLifeMonths: z.coerce.number().int().nonnegative().optional(),
   residualValue: z.coerce.number().nonnegative().optional(),
+  hasFutureEconomicBenefit: z.boolean().default(true),
+  costCanBeReliablyMeasured: z.boolean().default(true),
   qrCodeUrl: z.url().optional(),
   isDepreciable: z.boolean().default(true),
 });
@@ -90,6 +92,68 @@ export const transferAssetSchema = z
     message: "At least one of toBranchId or toUserId is required",
   });
 
+export const disposeAssetSchema = z.object({
+  method: z.enum(["sold", "donated", "scrapped", "lost", "written_off", "other"]),
+  reason: z.string().trim().min(2).max(2000),
+  proceeds: z.coerce.number().nonnegative().default(0),
+  disposedAt: z.coerce.date().optional(),
+  approvedByUserId: uuidSchema.optional(),
+  notes: z.string().trim().max(5000).optional(),
+});
+
+export const restoreAssetSchema = z.object({
+  reason: z.string().trim().min(2).max(2000),
+  status: z.enum(["active", "maintenance"]).default("active"),
+});
+
+export const recordAssetDepreciationSchema = z
+  .object({
+    fiscalYear: z.coerce.number().int().min(1900).max(2200),
+    periodUsedPriorYears: z.coerce.number().int().nonnegative().default(0),
+    periodUsedCurrentYear: z.coerce.number().int().min(0).max(12),
+    accumulatedDepreciationBf: z.coerce.number().nonnegative().default(0),
+    yearlyDepCharge: z.coerce.number().nonnegative(),
+    totalAccumulatedDepreciation: z.coerce.number().nonnegative(),
+    depreciationMethod: z
+      .enum(["straight_line", "reducing_balance"])
+      .default("straight_line"),
+    runDate: z.coerce.date().optional(),
+  })
+  .refine(
+    (value) =>
+      Math.abs(
+        value.accumulatedDepreciationBf +
+          value.yearlyDepCharge -
+          value.totalAccumulatedDepreciation,
+      ) < 0.01,
+    {
+      message:
+        "totalAccumulatedDepreciation must equal accumulatedDepreciationBf plus yearlyDepCharge",
+      path: ["totalAccumulatedDepreciation"],
+    },
+  );
+
+export const assetLifecycleQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  eventType: z
+    .enum([
+      "registered",
+      "updated",
+      "assigned",
+      "transferred",
+      "status_changed",
+      "maintenance_scheduled",
+      "maintenance_started",
+      "maintenance_completed",
+      "disposed",
+      "deleted",
+      "restored",
+      "depreciation_recorded",
+    ])
+    .optional(),
+});
+
 export const importAssetRowSchema = z.object({
   name: z.string().trim().min(2),
   assetTag: z.string().trim().min(1),
@@ -99,6 +163,9 @@ export const importAssetRowSchema = z.object({
   branchId: uuidSchema.optional(),
   assignedTo: uuidSchema.optional(),
   status: assetStatusSchema.optional(),
+  expectedUsefulLifeMonths: z.coerce.number().int().nonnegative().optional(),
+  hasFutureEconomicBenefit: z.boolean().default(true),
+  costCanBeReliablyMeasured: z.boolean().default(true),
 });
 
 export const assetAuditQuerySchema = z.object({
