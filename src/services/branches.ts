@@ -9,6 +9,7 @@ import {
 import { CreateBranchInput, UpdateBranchInput } from "../types/branches";
 import { ConflictError, NotFoundError } from "../utils/error";
 import { logger } from "../utils/logger";
+import { notifyOrganizationAdmins } from "./notifications";
 
 export const createBranchService = async (
   organizationId: string,
@@ -24,6 +25,17 @@ export const createBranchService = async (
     actorUserId,
     branchId: record.id,
     branchName: record.name,
+  });
+  await notifyOrganizationAdmins({
+    organizationId,
+    type: "branch_created",
+    title: "Branch created",
+    message: `${record.name} branch has been created.`,
+    metadata: {
+      branchId: record.id,
+      actorUserId,
+      redirectUrl: `/branches/${record.id}`,
+    },
   });
   return record;
 };
@@ -46,6 +58,17 @@ export const updateBranchService = async (
   const record = await updateBranchById(organizationId, branchId, actorUserId, payload);
   if (!record) throw new NotFoundError("Branch");
   logger.info("Branch updated", { organizationId, actorUserId, branchId });
+  await notifyOrganizationAdmins({
+    organizationId,
+    type: "branch_updated",
+    title: "Branch updated",
+    message: `${record.name} branch has been updated.`,
+    metadata: {
+      branchId: record.id,
+      actorUserId,
+      redirectUrl: `/branches/${record.id}`,
+    },
+  });
   return record;
 };
 
