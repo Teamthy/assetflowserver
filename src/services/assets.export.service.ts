@@ -1,5 +1,9 @@
 import ExcelJS from "exceljs";
-import { listAssets } from "../repositories/assets";
+import { randomUUID } from "node:crypto";
+import { mkdir } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { listAssetsForExportBatch } from "../repositories/assets";
 import { ExportAssetsQuery } from "../types/assets";
 import { logger } from "../utils/logger";
 
@@ -23,33 +27,16 @@ export const exportAssetsWorkbook = async (
   query: ExportAssetsQuery,
 ) => {
   logger.info("Asset export started", { organizationId });
-  let page = 1;
-  const assets: Awaited<ReturnType<typeof listAssets>>["data"] = [];
+  const exportDir = path.join(os.tmpdir(), "asset-management-exports");
+  await mkdir(exportDir, { recursive: true });
 
-  while (assets.length < MAX_EXPORT_ROWS) {
-    const limit = Math.min(EXPORT_PAGE_SIZE, MAX_EXPORT_ROWS - assets.length);
-    const result = await listAssets(organizationId, {
-      ...query,
-      page,
-      limit,
-    });
-    assets.push(...result.data);
-
-    if (assets.length >= MAX_EXPORT_ROWS && page < result.pagination.totalPages) {
-      logger.warn("Asset export truncated at row limit", {
-        organizationId,
-        limit: MAX_EXPORT_ROWS,
-      });
-      break;
-    }
-
-    if (page >= result.pagination.totalPages) {
-      break;
-    }
-    page += 1;
-  }
-
-  const workbook = new ExcelJS.Workbook();
+  const fileName = `assets-${Date.now()}-${randomUUID()}.xlsx`;
+  const filePath = path.join(exportDir, fileName);
+  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+    filename: filePath,
+    useSharedStrings: true,
+    useStyles: false,
+  });
   const sheet = workbook.addWorksheet("Assets");
 
   sheet.columns = [
@@ -70,27 +57,57 @@ export const exportAssetsWorkbook = async (
     { header: "Recognition Reasons", key: "recognitionReasons", width: 60 },
   ];
 
-  for (const asset of assets) {
-    sheet.addRow({
-      name: asset.name,
-      assetTag: asset.assetTag,
-      serialNumber: asset.serialNumber,
-      status: asset.status,
-      condition: asset.condition,
-      category: asset.category,
-      purchaseCost: asset.purchaseCost,
-      purchaseDate: toIsoString(asset.purchaseDate),
-      expectedUsefulLifeMonths: asset.expectedUsefulLifeMonths,
-      hasFutureEconomicBenefit: asset.hasFutureEconomicBenefit,
-      costCanBeReliablyMeasured: asset.costCanBeReliablyMeasured,
-      recognitionStatus: asset.recognitionStatus,
-      accountingTreatment: asset.accountingTreatment,
-      capitalizationThresholdApplied: asset.capitalizationThresholdApplied,
-      recognitionReasons: asset.recognitionReasons.join("; "),
+  let exportedCount = 0;
+  let cursor: { createdAt: Date; id: string } | undefined;
+
+  while (exportedCount < MAX_EXPORT_ROWS) {
+    const limit = Math.min(EXPORT_PAGE_SIZE, MAX_EXPORT_ROWS - exportedCount);
+    const rows = await listAssetsForExportBatch(organizationId, query, {
+      limit,
+      cursor,
+    });
+
+    if (rows.length === 0) {
+      break;
+    }
+
+    for (const asset of rows) {
+      sheet.addRow({
+        name: asset.name,
+        assetTag: asset.assetTag,
+        serialNumber: asset.serialNumber,
+        status: asset.status,
+        condition: asset.condition,
+        category: asset.category,
+        purchaseCost: asset.purchaseCost,
+        purchaseDate: toIsoString(asset.purchaseDate),
+        expectedUsefulLifeMonths: asset.expectedUsefulLifeMonths,
+        hasFutureEconomicBenefit: asset.hasFutureEconomicBenefit,
+        costCanBeReliablyMeasured: asset.costCanBeReliablyMeasured,
+        recognitionStatus: asset.recognitionStatus,
+        accountingTreatment: asset.accountingTreatment,
+        capitalizationThresholdApplied: asset.capitalizationThresholdApplied,
+        recognitionReasons: asset.recognitionReasons.join("; "),
+      }).commit();
+      exportedCount += 1;
+    }
+
+    const last = rows[rows.length - 1];
+    cursor = { createdAt: last.createdAt, id: last.id };
+
+    if (rows.length < limit) {
+      break;
+    }
+  }
+
+  if (exportedCount >= MAX_EXPORT_ROWS) {
+    logger.warn("Asset export truncated at row limit", {
+      organizationId,
+      limit: MAX_EXPORT_ROWS,
     });
   }
 
-  const buffer = await workbook.xlsx.writeBuffer();
-  logger.info("Asset export completed", { organizationId, exportedCount: assets.length });
-  return Buffer.from(buffer);
+  await workbook.commit();
+  logger.info("Asset export completed", { organizationId, exportedCount });
+  return { filePath, fileName, exportedCount };
 };

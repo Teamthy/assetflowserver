@@ -8,6 +8,7 @@ import { logger, requestLogger } from "./src/utils/logger";
 
 const app = express();
 
+app.set("trust proxy", env.TRUST_PROXY);
 app.use(helmet());
 app.use(
   cors({
@@ -15,7 +16,7 @@ app.use(
     credentials: true,
   }),
 );
-app.use(express.json());
+app.use(express.json({ limit: env.REQUEST_BODY_LIMIT }));
 app.use(requestLogger);
 
 app.use("/api", apiRouter);

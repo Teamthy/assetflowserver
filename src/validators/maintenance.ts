@@ -26,11 +26,11 @@ export const createMaintenanceSchema = z.object({
 export const updateMaintenanceSchema = z
   .object({
     title: z.string().trim().min(2).max(200).optional(),
-    description: z.string().trim().max(5000).optional(),
+    description: z.string().trim().max(5000).nullable().optional(),
     priority: z.enum(["low", "medium", "high", "critical"]).optional(),
     status: z.enum(["open", "in_progress", "completed", "cancelled"]).optional(),
-    dueAt: z.coerce.date().optional(),
-    assignedTo: uuidSchema.optional(),
+    dueAt: z.coerce.date().nullable().optional(),
+    assignedTo: uuidSchema.nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required for update",

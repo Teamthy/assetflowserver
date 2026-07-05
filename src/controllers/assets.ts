@@ -1,4 +1,6 @@
 import { NextFunction, Request, Response } from "express";
+import { createReadStream } from "node:fs";
+import { unlink } from "node:fs/promises";
 import {
   assetAuditQuerySchema,
   assetLifecycleQuerySchema,
@@ -15,7 +17,7 @@ import {
 import * as assetsService from "../services/assets";
 import { getAssetsAuditSummary } from "../services/assets.audit.service";
 import { exportAssetsWorkbook } from "../services/assets.export.service";
-import { importAssetsFromExcel } from "../services/assets.import.service";
+import { importAssetsFromExcelFile } from "../services/assets.import.service";
 import { AuthenticationError, ValidationError } from "../utils/error";
 import { z } from "zod";
 
@@ -195,11 +197,26 @@ export const exportAssets = async (req: Request, res: Response, next: NextFuncti
   try {
     const auth = requireAuthContext(req);
     const query = parseData(exportAssetsQuerySchema, req.query);
-    const buffer = await exportAssetsWorkbook(auth.organizationId, query);
+    const exportFile = await exportAssetsWorkbook(auth.organizationId, query);
+    let cleanedUp = false;
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      void unlink(exportFile.filePath).catch(() => undefined);
+    };
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename=assets-${Date.now()}.xlsx`);
-    res.status(200).send(buffer);
+    res.setHeader("Content-Disposition", `attachment; filename=${exportFile.fileName}`);
+    res.on("finish", cleanup);
+    res.on("close", cleanup);
+
+    const stream = createReadStream(exportFile.filePath);
+    stream.on("error", (error) => {
+      cleanup();
+      next(error);
+    });
+    res.status(200);
+    stream.pipe(res);
   } catch (error) {
     next(error);
   }
@@ -209,12 +226,16 @@ export const importAssets = async (req: Request, res: Response, next: NextFuncti
   try {
     const auth = requireAuthContext(req);
     const file = req.file;
-    if (!file?.buffer) {
+    if (!file?.path) {
       throw new ValidationError("No file uploaded", []);
     }
 
-    const data = await importAssetsFromExcel(auth.organizationId, auth.userId, file.buffer);
-    res.status(200).json({ success: true, data });
+    try {
+      const data = await importAssetsFromExcelFile(auth.organizationId, auth.userId, file.path);
+      res.status(200).json({ success: true, data });
+    } finally {
+      await unlink(file.path).catch(() => undefined);
+    }
   } catch (error) {
     next(error);
   }

@@ -6,14 +6,19 @@ import { env } from "../config/env";
 import { logger } from "../utils/logger";
 
 const resend = new Resend(env.RESEND_API_KEY);
+const templateCache = new Map<string, Handlebars.TemplateDelegate<Record<string, string>>>();
 
 const renderTemplate = async (
   templateFileName: string,
   data: Record<string, string>,
 ) => {
   const templatePath = path.join(__dirname, "../templates/emails", templateFileName);
-  const source = await fs.readFile(templatePath, "utf-8");
-  const template = Handlebars.compile(source);
+  let template = templateCache.get(templatePath);
+  if (!template) {
+    const source = await fs.readFile(templatePath, "utf-8");
+    template = Handlebars.compile(source);
+    templateCache.set(templatePath, template);
+  }
   return template(data);
 };
 

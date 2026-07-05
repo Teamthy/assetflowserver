@@ -78,6 +78,13 @@
       "when": 1782576744299,
       "tag": "0010_gorgeous_supreme_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1783291200000,
+      "tag": "0011_scaling_indexes",
+      "breakpoints": true
     }
   ]
 }

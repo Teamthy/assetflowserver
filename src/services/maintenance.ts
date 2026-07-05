@@ -1,6 +1,6 @@
-import { and, eq, gte, isNull, lte, ne } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, ne, or } from "drizzle-orm";
 import { db } from "../db";
-import { assets } from "../model/asset";
+import { assetLifecycleEvents, assets } from "../model/asset";
 import { maintenanceTasks } from "../model/maintenance";
 import { organizationUsers, users } from "../model/user";
 import {
@@ -20,6 +20,29 @@ import {
 import { ConflictError, NotFoundError, ValidationError } from "../utils/error";
 import { logger } from "../utils/logger";
 import { createInAppNotification } from "./notifications";
+
+const NOTIFICATION_BATCH_CONCURRENCY = 10;
+
+const runWithConcurrency = async <T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) => {
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex];
+        nextIndex += 1;
+        if (item === undefined) continue;
+        await worker(item);
+      }
+    },
+  );
+
+  await Promise.all(workers);
+};
 
 const assertAssetExistsInOrg = async (organizationId: string, assetId: string) => {
   const [record] = await db
@@ -41,7 +64,10 @@ const assertAssetExistsInOrg = async (organizationId: string, assetId: string) =
   }
 };
 
-const assertAssigneeInOrg = async (organizationId: string, assignedTo?: string) => {
+const assertAssigneeInOrg = async (
+  organizationId: string,
+  assignedTo?: string | null,
+) => {
   if (!assignedTo) return;
 
   const [record] = await db
@@ -91,6 +117,20 @@ export const createMaintenanceService = async (
 
     if (!record) throw new ConflictError("Failed to create maintenance task");
 
+    await tx.insert(assetLifecycleEvents).values({
+      organizationId,
+      assetId: record.assetId,
+      eventType: "maintenance_scheduled",
+      description: record.title,
+      metadata: {
+        maintenanceId: record.id,
+        priority: record.priority,
+        dueAt: record.dueAt?.toISOString(),
+        assignedTo: record.assignedTo,
+      },
+      actorUserId,
+    });
+
     return record;
   });
 
@@ -99,20 +139,6 @@ export const createMaintenanceService = async (
     actorUserId,
     maintenanceId: task.id,
     assetId: task.assetId,
-  });
-
-  await recordAssetLifecycleEvent({
-    organizationId,
-    assetId: task.assetId,
-    actorUserId,
-    eventType: "maintenance_scheduled",
-    description: task.title,
-    metadata: {
-      maintenanceId: task.id,
-      priority: task.priority,
-      dueAt: task.dueAt?.toISOString(),
-      assignedTo: task.assignedTo,
-    },
   });
 
   if (task.assignedTo) {
@@ -161,13 +187,11 @@ export const updateMaintenanceService = async (
     ]);
   }
 
-  const previous = await getMaintenanceByIdService(organizationId, maintenanceId);
-
   if (payload.assignedTo !== undefined) {
     await assertAssigneeInOrg(organizationId, payload.assignedTo);
   }
 
-  const updated = await db.transaction(async (tx) => {
+  const { updated, previousStatus, shouldRestoreActive } = await db.transaction(async (tx) => {
     const [current] = await tx
       .select()
       .from(maintenanceTasks)
@@ -181,6 +205,7 @@ export const updateMaintenanceService = async (
       .limit(1);
 
     if (!current) throw new NotFoundError("Maintenance task");
+    const previousStatus = current.status;
 
     const updatePayload: Partial<typeof maintenanceTasks.$inferInsert> = {
       updatedByUserId: actorUserId,
@@ -202,18 +227,44 @@ export const updateMaintenanceService = async (
           eq(maintenanceTasks.organizationId, organizationId),
           eq(maintenanceTasks.id, maintenanceId),
           isNull(maintenanceTasks.deletedAt),
+          eq(maintenanceTasks.status, current.status),
         ),
       )
       .returning();
 
-    if (!record) throw new NotFoundError("Maintenance task");
+    if (!record) {
+      throw new ConflictError("Maintenance task was modified concurrently");
+    }
 
-    return record;
+    let shouldRestoreActive = false;
+    if (
+      current.status === "in_progress" &&
+      payload.status &&
+      ["open", "cancelled"].includes(payload.status)
+    ) {
+      const [otherInProgress] = await tx
+        .select({ id: maintenanceTasks.id })
+        .from(maintenanceTasks)
+        .where(
+          and(
+            eq(maintenanceTasks.organizationId, organizationId),
+            eq(maintenanceTasks.assetId, record.assetId),
+            eq(maintenanceTasks.status, "in_progress"),
+            ne(maintenanceTasks.id, record.id),
+            isNull(maintenanceTasks.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      shouldRestoreActive = !otherInProgress;
+    }
+
+    return { updated: record, previousStatus, shouldRestoreActive };
   });
 
   logger.info("Maintenance task updated", { organizationId, actorUserId, maintenanceId });
 
-  if (payload.status === "in_progress" && previous.status !== "in_progress") {
+  if (payload.status === "in_progress" && previousStatus !== "in_progress") {
     await transitionAssetStatus(
       organizationId,
       updated.assetId,
@@ -225,36 +276,16 @@ export const updateMaintenanceService = async (
     );
   }
 
-  if (
-    previous.status === "in_progress" &&
-    payload.status &&
-    ["open", "cancelled"].includes(payload.status)
-  ) {
-    const [otherInProgress] = await db
-      .select({ id: maintenanceTasks.id })
-      .from(maintenanceTasks)
-      .where(
-        and(
-          eq(maintenanceTasks.organizationId, organizationId),
-          eq(maintenanceTasks.assetId, updated.assetId),
-          eq(maintenanceTasks.status, "in_progress"),
-          ne(maintenanceTasks.id, updated.id),
-          isNull(maintenanceTasks.deletedAt),
-        ),
-      )
-      .limit(1);
-
-    if (!otherInProgress) {
-      await transitionAssetStatus(
-        organizationId,
-        updated.assetId,
-        actorUserId,
-        "active",
-        "status_changed",
-        `Maintenance ${payload.status}: ${updated.title}`,
-        { maintenanceId: updated.id },
-      );
-    }
+  if (shouldRestoreActive) {
+    await transitionAssetStatus(
+      organizationId,
+      updated.assetId,
+      actorUserId,
+      "active",
+      "status_changed",
+      `Maintenance ${payload.status}: ${updated.title}`,
+      { maintenanceId: updated.id },
+    );
   }
 
   if (updated.assignedTo) {
@@ -282,12 +313,33 @@ export const completeMaintenanceService = async (
   actorUserId: string,
   payload: CompleteMaintenanceInput,
 ) => {
-  const completed = await db.transaction(async (tx) => {
+  const { completed, wasInProgress, otherInProgress } = await db.transaction(async (tx) => {
+    const [current] = await tx
+      .select()
+      .from(maintenanceTasks)
+      .where(
+        and(
+          eq(maintenanceTasks.organizationId, organizationId),
+          eq(maintenanceTasks.id, maintenanceId),
+          isNull(maintenanceTasks.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    if (!current) throw new NotFoundError("Maintenance task");
+    if (current.status === "completed") {
+      throw new ConflictError("Maintenance task is already completed");
+    }
+    if (current.status === "cancelled") {
+      throw new ConflictError("Cannot complete a cancelled maintenance task");
+    }
+
+    const completedAt = new Date();
     const [record] = await tx
       .update(maintenanceTasks)
       .set({
         status: "completed",
-        completedAt: new Date(),
+        completedAt,
         completedByUserId: actorUserId,
         completionNote: payload.note ?? null,
         updatedByUserId: actorUserId,
@@ -298,13 +350,38 @@ export const completeMaintenanceService = async (
           eq(maintenanceTasks.organizationId, organizationId),
           eq(maintenanceTasks.id, maintenanceId),
           isNull(maintenanceTasks.deletedAt),
+          eq(maintenanceTasks.status, current.status),
         ),
       )
       .returning();
 
-    if (!record) throw new NotFoundError("Maintenance task");
+    if (!record) {
+      throw new ConflictError("Maintenance task was modified concurrently");
+    }
 
-    return record;
+    let otherInProgress = false;
+    if (current.status === "in_progress") {
+      const [sibling] = await tx
+        .select({ id: maintenanceTasks.id })
+        .from(maintenanceTasks)
+        .where(
+          and(
+            eq(maintenanceTasks.organizationId, organizationId),
+            eq(maintenanceTasks.assetId, record.assetId),
+            eq(maintenanceTasks.status, "in_progress"),
+            ne(maintenanceTasks.id, record.id),
+            isNull(maintenanceTasks.deletedAt),
+          ),
+        )
+        .limit(1);
+      otherInProgress = Boolean(sibling);
+    }
+
+    return {
+      completed: record,
+      wasInProgress: current.status === "in_progress",
+      otherInProgress,
+    };
   });
 
   logger.info("Maintenance task completed", {
@@ -314,33 +391,35 @@ export const completeMaintenanceService = async (
     hasNote: Boolean(payload.note),
   });
 
-  const [otherInProgress] = await db
-    .select({ id: maintenanceTasks.id })
-    .from(maintenanceTasks)
-    .where(
-      and(
-        eq(maintenanceTasks.organizationId, organizationId),
-        eq(maintenanceTasks.assetId, completed.assetId),
-        eq(maintenanceTasks.status, "in_progress"),
-        ne(maintenanceTasks.id, completed.id),
-        isNull(maintenanceTasks.deletedAt),
-      ),
-    )
-    .limit(1);
-
-  await transitionAssetStatus(
-    organizationId,
-    completed.assetId,
-    actorUserId,
-    otherInProgress ? "maintenance" : "active",
-    "maintenance_completed",
-    `Maintenance completed: ${completed.title}`,
-    {
-      maintenanceId: completed.id,
-      completionNote: payload.note ?? null,
-      otherMaintenanceInProgress: Boolean(otherInProgress),
-    },
-  );
+  if (wasInProgress) {
+    await transitionAssetStatus(
+      organizationId,
+      completed.assetId,
+      actorUserId,
+      otherInProgress ? "maintenance" : "active",
+      "maintenance_completed",
+      `Maintenance completed: ${completed.title}`,
+      {
+        maintenanceId: completed.id,
+        completionNote: payload.note ?? null,
+        otherMaintenanceInProgress: otherInProgress,
+      },
+    );
+  } else {
+    await recordAssetLifecycleEvent({
+      organizationId,
+      assetId: completed.assetId,
+      actorUserId,
+      eventType: "maintenance_completed",
+      description: `Maintenance completed: ${completed.title}`,
+      metadata: {
+        maintenanceId: completed.id,
+        completionNote: payload.note ?? null,
+        completedFromStatus: "open",
+      },
+      occurredAt: completed.completedAt ?? new Date(),
+    });
+  }
 
   if (completed.assignedTo) {
     await createInAppNotification({
@@ -378,29 +457,34 @@ export const notifyMaintenanceDueSoonService = async (
         isNull(maintenanceTasks.deletedAt),
         gte(maintenanceTasks.dueAt, now),
         lte(maintenanceTasks.dueAt, until),
+        or(
+          eq(maintenanceTasks.status, "open"),
+          eq(maintenanceTasks.status, "in_progress"),
+        ),
       ),
     );
 
-  await Promise.all(
-    tasks
-      .filter((task) => Boolean(task.assignedTo))
-      .map((task) =>
-        createInAppNotification({
-          organizationId,
-          userId: task.assignedTo!,
-          type: "maintenance_due",
-          title: "Maintenance due soon",
-          message: `${task.title} is due soon.`,
-          metadata: {
-            maintenanceId: task.id,
-            assetId: task.assetId,
-            priority: task.priority,
-            dueAt: task.dueAt?.toISOString(),
-            redirectUrl: `/maintenance/${task.id}`,
-          },
-        }),
-      ),
+  const assignedTasks = tasks.filter((task) => Boolean(task.assignedTo));
+  await runWithConcurrency(
+    assignedTasks,
+    NOTIFICATION_BATCH_CONCURRENCY,
+    async (task) => {
+      await createInAppNotification({
+        organizationId,
+        userId: task.assignedTo!,
+        type: "maintenance_due",
+        title: "Maintenance due soon",
+        message: `${task.title} is due soon.`,
+        metadata: {
+          maintenanceId: task.id,
+          assetId: task.assetId,
+          priority: task.priority,
+          dueAt: task.dueAt?.toISOString(),
+          redirectUrl: `/maintenance/${task.id}`,
+        },
+      });
+    },
   );
 
-  return { notified: tasks.filter((task) => Boolean(task.assignedTo)).length };
+  return { notified: assignedTasks.length };
 };

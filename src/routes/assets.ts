@@ -1,9 +1,28 @@
 import { Router } from "express";
 import multer from "multer";
+import os from "node:os";
+import path from "node:path";
+import { env } from "../config/env";
 import * as assetsController from "../controllers/assets";
 import { requireAuth } from "../middlewares/auth";
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: os.tmpdir(),
+  }),
+  limits: {
+    fileSize: env.ASSET_IMPORT_MAX_FILE_BYTES,
+    files: 1,
+  },
+  fileFilter: (_req, file, callback) => {
+    const extension = path.extname(file.originalname).toLowerCase();
+    if (extension !== ".xlsx") {
+      callback(new Error("Only .xlsx asset import files are supported"));
+      return;
+    }
+    callback(null, true);
+  },
+});
 
 export const assetsRouter = Router();
 
