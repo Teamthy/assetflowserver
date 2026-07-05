@@ -41,6 +41,29 @@ import {
   buildAssetRecognitionPersistencePayload,
 } from "./assets.recognition.service";
 
+const NOTIFICATION_BATCH_CONCURRENCY = 10;
+
+const runWithConcurrency = async <T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) => {
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex];
+        nextIndex += 1;
+        if (item === undefined) continue;
+        await worker(item);
+      }
+    },
+  );
+
+  await Promise.all(workers);
+};
+
 const assertBranchRequiredIfEnabled = async (
   organizationId: string,
   branchId: string | undefined,
@@ -413,16 +436,18 @@ export const notifyWarrantyExpiringAssetsService = async (
 ) => {
   const expiringAssets = await listWarrantyExpiringAssets(organizationId, daysAhead);
 
-  await Promise.all(
-    expiringAssets.map((asset) =>
-      notifyWarrantyExpiringSoon({
+  await runWithConcurrency(
+    expiringAssets,
+    NOTIFICATION_BATCH_CONCURRENCY,
+    async (asset) => {
+      await notifyWarrantyExpiringSoon({
         organizationId,
         assetId: asset.id,
         assetName: asset.name,
         assetTag: asset.assetTag,
         warrantyExpiryDate: asset.warrantyExpiryDate!,
-      }),
-    ),
+      });
+    },
   );
 
   return { notified: expiringAssets.length };

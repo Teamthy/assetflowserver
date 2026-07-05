@@ -148,13 +148,25 @@ export const assets = pgTable(
       table.organizationId,
       table.branchId,
     ),
-    assetsOrgDeletedAtIdx: index("assets_org_deleted_at_idx").on(
-      table.organizationId,
-      table.deletedAt,
-    ),
-    assetsOrgAccountingTreatmentIdx: index("assets_org_accounting_treatment_idx").on(
-      table.organizationId,
-      table.accountingTreatment,
+	    assetsOrgDeletedAtIdx: index("assets_org_deleted_at_idx").on(
+	      table.organizationId,
+	      table.deletedAt,
+	    ),
+	    assetsOrgCreatedAtIdx: index("assets_org_created_at_idx")
+	      .on(table.organizationId, table.createdAt, table.id)
+	      .where(sql`${table.deletedAt} IS NULL`),
+	    assetsOrgPurchaseDateIdx: index("assets_org_purchase_date_idx")
+	      .on(table.organizationId, table.purchaseDate, table.id)
+	      .where(sql`${table.deletedAt} IS NULL`),
+	    assetsOrgWarrantyExpiryIdx: index("assets_org_warranty_expiry_idx")
+	      .on(table.organizationId, table.warrantyExpiryDate, table.id)
+	      .where(sql`${table.deletedAt} IS NULL AND ${table.warrantyExpiryDate} IS NOT NULL`),
+	    assetsOrgAssignedToIdx: index("assets_org_assigned_to_idx")
+	      .on(table.organizationId, table.assignedTo)
+	      .where(sql`${table.deletedAt} IS NULL AND ${table.assignedTo} IS NOT NULL`),
+	    assetsOrgAccountingTreatmentIdx: index("assets_org_accounting_treatment_idx").on(
+	      table.organizationId,
+	      table.accountingTreatment,
     ),
     assetsPositivePurchaseCostChk: check(
       "assets_positive_purchase_cost_chk",
@@ -300,11 +312,17 @@ export const assetLifecycleEvents = pgTable(
       .notNull(),
   },
   (table) => ({
-    lifecycleOrgAssetDateIdx: index("asset_lifecycle_org_asset_date_idx").on(
-      table.organizationId,
-      table.assetId,
-      table.occurredAt,
-    ),
+	    lifecycleOrgAssetDateIdx: index("asset_lifecycle_org_asset_date_idx").on(
+	      table.organizationId,
+	      table.assetId,
+	      table.occurredAt,
+	    ),
+	    lifecycleOrgAssetDateIdIdx: index("asset_lifecycle_org_asset_date_id_idx").on(
+	      table.organizationId,
+	      table.assetId,
+	      table.occurredAt,
+	      table.id,
+	    ),
     lifecycleOrgTypeDateIdx: index("asset_lifecycle_org_type_date_idx").on(
       table.organizationId,
       table.eventType,

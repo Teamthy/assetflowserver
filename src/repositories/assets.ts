@@ -5,9 +5,9 @@ import {
   desc,
   eq,
   gte,
-  ilike,
   isNotNull,
   isNull,
+  lt,
   lte,
   or,
   SQL,
@@ -150,12 +150,7 @@ const buildAssetFilters = (
   if (query?.search) {
     const searchPattern = `%${query.search}%`;
     filters.push(
-      or(
-        ilike(assets.name, searchPattern),
-        ilike(assets.assetTag, searchPattern),
-        sql`${assets.serialNumber} ilike ${searchPattern}`,
-        sql`${assets.description} ilike ${searchPattern}`,
-      ) ?? sql`false`,
+      sql`(${assets.name} || ' ' || ${assets.assetTag} || ' ' || coalesce(${assets.serialNumber}, '') || ' ' || coalesce(${assets.description}, '')) ilike ${searchPattern}`,
     );
   }
 
@@ -329,6 +324,36 @@ export const listAssets = async (
   };
 };
 
+export const listAssetsForExportBatch = async (
+  organizationId: string,
+  query: Partial<AssetListQuery>,
+  options: {
+    limit: number;
+    cursor?: { createdAt: Date; id: string };
+  },
+) => {
+  const filters = buildAssetFilters(organizationId, query);
+
+  if (options.cursor) {
+    filters.push(
+      or(
+        lt(assets.createdAt, options.cursor.createdAt),
+        and(
+          eq(assets.createdAt, options.cursor.createdAt),
+          lt(assets.id, options.cursor.id),
+        ),
+      ) ?? sql`false`,
+    );
+  }
+
+  return db
+    .select()
+    .from(assets)
+    .where(and(...filters))
+    .orderBy(desc(assets.createdAt), desc(assets.id))
+    .limit(options.limit);
+};
+
 export const findAssetById = async (
   organizationId: string,
   assetId: string,
@@ -437,15 +462,18 @@ export const updateAssetById = async (
         .update(assets)
         .set(updatePayload)
         .where(
-          and(
-            eq(assets.organizationId, organizationId),
-            eq(assets.id, assetId),
-            isNull(assets.deletedAt),
-          ),
-        )
-        .returning();
+	          and(
+	            eq(assets.organizationId, organizationId),
+	            eq(assets.id, assetId),
+	            isNull(assets.deletedAt),
+	            eq(assets.updatedAt, current.updatedAt),
+	          ),
+	        )
+	        .returning();
 
-      if (!record) return undefined;
+	      if (!record) {
+	        throw new ConflictError("Asset was modified concurrently");
+	      }
 
       const eventType =
         record.assignedTo !== current.assignedTo
@@ -567,20 +595,20 @@ export const transferAsset = async (
           updatedAt: new Date(),
         })
         .where(
-          and(
-            eq(assets.organizationId, organizationId),
-            eq(assets.id, assetId),
-            isNull(assets.deletedAt),
-          ),
-        )
-        .returning();
+	          and(
+	            eq(assets.organizationId, organizationId),
+	            eq(assets.id, assetId),
+	            isNull(assets.deletedAt),
+	            eq(assets.status, currentAsset.status),
+	            sql`${assets.branchId} IS NOT DISTINCT FROM ${currentAsset.branchId}`,
+	            sql`${assets.assignedTo} IS NOT DISTINCT FROM ${currentAsset.assignedTo}`,
+	          ),
+	        )
+	        .returning();
 
-      if (!updatedAsset) {
-        throw new DatabaseError(
-          "Failed to update asset during transfer",
-          false,
-        );
-      }
+	      if (!updatedAsset) {
+	        throw new ConflictError("Asset was modified concurrently during transfer");
+	      }
 
       const [transferRecord] = await tx
         .insert(assetTransfers)
@@ -675,15 +703,18 @@ export const transitionAssetStatus = async (
           updatedAt: new Date(),
         })
         .where(
-          and(
-            eq(assets.organizationId, organizationId),
-            eq(assets.id, assetId),
-            isNull(assets.deletedAt),
-          ),
-        )
-        .returning();
+	          and(
+	            eq(assets.organizationId, organizationId),
+	            eq(assets.id, assetId),
+	            isNull(assets.deletedAt),
+	            eq(assets.status, current.status),
+	          ),
+	        )
+	        .returning();
 
-      if (!record) return undefined;
+	      if (!record) {
+	        throw new ConflictError("Asset was modified concurrently");
+	      }
 
       await tx.insert(assetLifecycleEvents).values({
         organizationId,
@@ -709,6 +740,7 @@ export const recordAssetLifecycleEvent = async (input: {
   actorUserId: string;
   eventType:
     | "maintenance_scheduled"
+    | "maintenance_completed"
     | "depreciation_recorded";
   description: string;
   metadata?: Record<string, unknown>;
@@ -799,17 +831,21 @@ export const disposeAssetById = async (
           updatedAt: new Date(),
         })
         .where(
-          and(
-            eq(assets.organizationId, organizationId),
-            eq(assets.id, assetId),
-            isNull(assets.deletedAt),
-          ),
-        )
-        .returning();
+	          and(
+	            eq(assets.organizationId, organizationId),
+	            eq(assets.id, assetId),
+	            isNull(assets.deletedAt),
+	            eq(assets.status, current.status),
+	          ),
+	        )
+	        .returning();
 
-      if (!asset || !disposal) {
-        throw new DatabaseError("Failed to dispose asset", false);
-      }
+	      if (!asset) {
+	        throw new ConflictError("Asset was modified concurrently during disposal");
+	      }
+	      if (!disposal) {
+	        throw new DatabaseError("Failed to dispose asset", false);
+	      }
 
       await tx.insert(assetLifecycleEvents).values({
         organizationId,

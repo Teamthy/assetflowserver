@@ -1,4 +1,5 @@
 import { index, pgEnum, pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { organizations, users } from "./user";
 import { assets } from "./asset";
 
@@ -60,9 +61,21 @@ export const maintenanceTasks = pgTable(
       table.organizationId,
       table.assetId,
     ),
-    maintenanceOrgDeletedAtIdx: index("maintenance_org_deleted_at_idx").on(
-      table.organizationId,
-      table.deletedAt,
-    ),
-  }),
-);
+	    maintenanceOrgDeletedAtIdx: index("maintenance_org_deleted_at_idx").on(
+	      table.organizationId,
+	      table.deletedAt,
+	    ),
+	    maintenanceOrgCreatedAtIdx: index("maintenance_org_created_at_idx")
+	      .on(table.organizationId, table.createdAt, table.id)
+	      .where(sql`${table.deletedAt} IS NULL`),
+	    maintenanceOrgStatusCreatedAtIdx: index("maintenance_org_status_created_at_idx")
+	      .on(table.organizationId, table.status, table.createdAt, table.id)
+	      .where(sql`${table.deletedAt} IS NULL`),
+	    maintenanceOrgAssignedToIdx: index("maintenance_org_assigned_to_idx")
+	      .on(table.organizationId, table.assignedTo)
+	      .where(sql`${table.deletedAt} IS NULL AND ${table.assignedTo} IS NOT NULL`),
+	    maintenanceOrgDueOpenIdx: index("maintenance_org_due_open_idx")
+	      .on(table.organizationId, table.dueAt, table.id)
+	      .where(sql`${table.deletedAt} IS NULL AND ${table.status} IN ('open', 'in_progress')`),
+	  }),
+	);

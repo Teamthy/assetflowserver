@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { env } from "../config/env";
 import { bulkCreateAssetsAtomic } from "../repositories/assets";
 import { findOrganizationById } from "../repositories/organizations";
 import { ValidationError } from "../utils/error";
@@ -23,6 +24,17 @@ type ImportResult = {
 };
 
 type AssetImportPayload = Parameters<typeof bulkCreateAssetsAtomic>[2][number];
+const MAX_FAILURE_DETAILS = 200;
+
+const addFailure = (
+  result: ImportResult,
+  failure: { row: number; message: string },
+) => {
+  result.failedCount += 1;
+  if (result.failures.length < MAX_FAILURE_DETAILS) {
+    result.failures.push(failure);
+  }
+};
 
 const unwrapExcelCellValue = (value: ExcelJS.CellValue): unknown => {
   if (value === null || value === undefined) return undefined;
@@ -94,6 +106,27 @@ export const importAssetsFromExcel = async (
   actorUserId: string,
   fileBuffer: Buffer<ArrayBufferLike>,
 ): Promise<ImportResult> => {
+  const workbook = new ExcelJS.Workbook();
+  const bytes = new Uint8Array(fileBuffer);
+  await workbook.xlsx.load(bytes as never);
+  return importAssetsFromWorkbook(organizationId, actorUserId, workbook);
+};
+
+export const importAssetsFromExcelFile = async (
+  organizationId: string,
+  actorUserId: string,
+  filePath: string,
+): Promise<ImportResult> => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  return importAssetsFromWorkbook(organizationId, actorUserId, workbook);
+};
+
+const importAssetsFromWorkbook = async (
+  organizationId: string,
+  actorUserId: string,
+  workbook: ExcelJS.Workbook,
+): Promise<ImportResult> => {
   logger.info("Asset import started", { organizationId, actorUserId });
   const organization = await findOrganizationById(organizationId);
   if (!organization) {
@@ -102,9 +135,6 @@ export const importAssetsFromExcel = async (
     ]);
   }
 
-  const workbook = new ExcelJS.Workbook();
-  const bytes = new Uint8Array(fileBuffer);
-  await workbook.xlsx.load(bytes as never);
   const sheet = workbook.worksheets[0];
 
   if (!sheet) {
@@ -117,16 +147,28 @@ export const importAssetsFromExcel = async (
     };
   }
 
+  const importableRowCount = Math.max(0, sheet.actualRowCount - 1);
+  const rowsToRead = Math.min(importableRowCount, env.ASSET_IMPORT_MAX_ROWS);
   const rows = sheet
-    .getRows(2, Math.max(0, sheet.actualRowCount - 1))
+    .getRows(2, rowsToRead)
     ?.filter((row) => row.actualCellCount > 0) ?? [];
   const result: ImportResult = {
-    totalRows: rows.length,
+    totalRows: importableRowCount,
     insertedCount: 0,
     failedCount: 0,
     failures: [],
     successfulRows: [],
   };
+
+  if (importableRowCount > env.ASSET_IMPORT_MAX_ROWS) {
+    result.failedCount += importableRowCount - env.ASSET_IMPORT_MAX_ROWS;
+    if (result.failures.length < MAX_FAILURE_DETAILS) {
+      result.failures.push({
+      row: env.ASSET_IMPORT_MAX_ROWS + 2,
+      message: `Import limited to ${env.ASSET_IMPORT_MAX_ROWS} data rows per file`,
+      });
+    }
+  }
   const validRows: Array<{
     row: number;
     payload: AssetImportPayload;
@@ -150,8 +192,7 @@ export const importAssetsFromExcel = async (
 
     const parsed = importAssetRowSchema.safeParse(rowData);
     if (!parsed.success) {
-      result.failedCount += 1;
-      result.failures.push({
+      addFailure(result, {
         row: row.number,
         message: parsed.error.issues.map((i) => i.message).join(", "),
       });
@@ -159,8 +200,7 @@ export const importAssetsFromExcel = async (
     }
 
     if (organization.multiBranchEnabled && !parsed.data.branchId) {
-      result.failedCount += 1;
-      result.failures.push({
+      addFailure(result, {
         row: row.number,
         message:
           "branchId is required when multi-branch mode is enabled for this organization",
@@ -207,13 +247,12 @@ export const importAssetsFromExcel = async (
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Bulk insert failed";
-      result.failedCount += validRows.length;
-      result.failures.push(
-        ...validRows.map((entry) => ({
+      for (const entry of validRows) {
+        addFailure(result, {
           row: entry.row,
           message,
-        })),
-      );
+        });
+      }
     }
   }
 

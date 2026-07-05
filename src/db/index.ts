@@ -8,6 +8,10 @@ const ssl = env.NODE_ENV === "production" ? { rejectUnauthorized: false } : unde
 export const pool = new Pool({
   connectionString: env.DATABASE_URL,
   ssl,
+  max: env.PG_POOL_MAX,
+  idleTimeoutMillis: env.PG_IDLE_TIMEOUT_MS,
+  connectionTimeoutMillis: env.PG_CONNECTION_TIMEOUT_MS,
+  statement_timeout: env.PG_STATEMENT_TIMEOUT_MS,
 });
 
 export const db = drizzle(pool, { schema });
