@@ -30,9 +30,11 @@ const envSchema = z.object({
 	    .positive()
 	    .default(10 * 1024 * 1024),
 	  ASSET_IMPORT_MAX_ROWS: z.coerce.number().int().positive().default(5_000),
-	  JWT_SECRET: secretSchema("dev-jwt-secret-change-me-12345"),
+  JWT_SECRET: secretSchema("dev-jwt-secret-change-me-12345"),
   JWT_REFRESH_SECRET: secretSchema("dev-jwt-refresh-secret-change-me-12345"),
   TOKEN_HASH_PEPPER: secretSchema("dev-token-hash-pepper-change-me-12345"),
+  JWT_ISSUER: z.string().min(1).default("asset-management-api"),
+  JWT_AUDIENCE: z.string().min(1).default("asset-management-client"),
   JWT_ACCESS_EXPIRES_IN: z.string().default("30m"),
   JWT_REFRESH_EXPIRES_IN: z.string().default("7d"),
   COOKIE_DOMAIN: z.string().optional(),
@@ -53,6 +55,7 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().min(1),
   RESEND_FROM_EMAIL: z.email(),
   SUPPORT_EMAIL: z.email().default("support@example.com"),
+  PG_SSL_CA_CERT: z.string().optional(),
   LOG_OTP_FOR_DEBUG: z
     .string()
     .optional()

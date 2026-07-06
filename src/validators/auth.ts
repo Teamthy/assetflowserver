@@ -4,7 +4,7 @@ const registerBaseSchema = z.object({
   firstName: z.string().min(2),
   lastName: z.string().min(2),
   email: z.email(),
-  password: z.string().min(8),
+  password: z.string().min(12),
 });
 
 export const registerSchema = z.discriminatedUnion("accountType", [
@@ -38,7 +38,7 @@ export const verifyPasswordSchema = z.object({
 export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1),
-    newPassword: z.string().min(8),
+    newPassword: z.string().min(12),
   })
   .refine((value) => value.currentPassword !== value.newPassword, {
     message: "New password must be different from current password",
@@ -50,8 +50,9 @@ export const requestResetPasswordSchema = z.object({
 });
 
 export const resetPasswordSchema = z.object({
-  token: z.string().length(6),
-  newPassword: z.string().min(8),
+  email: z.email(),
+  token: z.string().regex(/^\d{6}$/),
+  newPassword: z.string().min(12),
 });
 
 export const refreshTokenSchema = z.object({
