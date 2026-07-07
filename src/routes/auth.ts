@@ -66,3 +66,4 @@ authRouter.post(
 authRouter.post("/logout", requireAuth, authController.logout);
 authRouter.post("/logout-all", requireAuth, authController.logoutAll);
 authRouter.post("/change-password", requireAuth, authController.changePassword);
+authRouter.get("/me", requireAuth, authController.me);

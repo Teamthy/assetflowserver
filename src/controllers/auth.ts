@@ -167,3 +167,17 @@ export const logoutAll = async (req: Request, res: Response, next: NextFunction)
     next(error);
   }
 };
+export const me = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.auth?.userId || !req.auth?.organizationId) {
+      throw new AuthenticationError();
+    }
+    const data = await authService.getCurrentUser({
+      userId: req.auth.userId,
+      organizationId: req.auth.organizationId,
+    });
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};

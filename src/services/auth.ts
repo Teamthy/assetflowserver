@@ -25,6 +25,9 @@ import { organizations, users } from "../model";
 import { organizationUsers } from "../model";
 import { logger } from "../utils/logger";
 import { createInAppNotification } from "./notifications";
+import { seedSystemRolesForOrganization } from "./roles.service";
+import { assignRoleToUser } from "../repositories/roles";
+import { SYSTEM_ROLES } from "../types/roles";
 
 const parseDurationMs = (value: string): number => {
   const match = value.match(/^(\d+)([smhd])$/);
@@ -67,23 +70,23 @@ const signRefreshToken = (payload: { userId: string; organizationId: string }) =
 
 type RegisterInput =
   | {
-      accountType: "personal";
-      organizationName?: string;
-      organizationSlug?: string;
-      firstName: string;
-      lastName: string;
-      email: string;
-      password: string;
-    }
+    accountType: "personal";
+    organizationName?: string;
+    organizationSlug?: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+  }
   | {
-      accountType: "organization";
-      organizationName: string;
-      organizationSlug?: string;
-      firstName: string;
-      lastName: string;
-      email: string;
-      password: string;
-    };
+    accountType: "organization";
+    organizationName: string;
+    organizationSlug?: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+  };
 
 export const register = async (input: RegisterInput) => {
   const existing = await findUserByEmail(input.email);
@@ -112,6 +115,31 @@ export const register = async (input: RegisterInput) => {
     passwordHash,
   });
 
+  try {
+    const roleIds = await seedSystemRolesForOrganization({
+      organizationId: organization.id,
+      ownerUserId: owner.id,
+    });
+
+    await assignRoleToUser({
+      organizationId: organization.id,
+      userId: owner.id,
+      roleId: roleIds[SYSTEM_ROLES.SUPER_ADMIN],
+      assignedByUserId: owner.id,
+    });
+
+    logger.info("Seeded system roles for new organization", {
+      organizationId: organization.id,
+      ownerUserId: owner.id,
+    });
+  } catch (error) {
+    logger.error("Failed to seed roles for new organization", {
+      organizationId: organization.id,
+      ownerUserId: owner.id,
+      error,
+    });
+  }
+
   const accessToken = signAccessToken({
     userId: owner.id,
     organizationId: organization.id,
@@ -121,13 +149,6 @@ export const register = async (input: RegisterInput) => {
 
   const refreshExpiresAt = new Date(Date.now() + refreshTokenTtlMs);
   await saveRefreshToken(owner.id, organization.id, refreshToken, refreshExpiresAt);
-
-  // Temporarily disabled while email domain/provider setup is being finalized.
-  // await sendOnboardingWelcomeEmail({
-  //   to: owner.email,
-  //   firstName: owner.firstName,
-  //   organizationName: organization.name,
-  // });
 
   logger.info("User registration successful", {
     userId: owner.id,
@@ -311,14 +332,6 @@ export const requestPasswordReset = async (input: { email: string }) => {
     });
   }
 
-  // Temporarily disabled while email domain/provider setup is being finalized.
-  // await sendPasswordResetOtpEmail({
-  //   to: user.email,
-  //   userName: `${user.firstName} ${user.lastName}`,
-  //   otp: rawToken,
-  //   expiryMinutes: 30,
-  // });
-
   if (env.LOG_OTP_FOR_DEBUG === true && env.NODE_ENV !== "production") {
     logger.info(`OTP email generated: ${user.email} -> ${rawToken}`);
   }
@@ -476,4 +489,51 @@ export const logoutAll = async (input: { userId: string; organizationId: string 
     organizationId: input.organizationId,
   });
   return { message: "Logged out from all sessions" };
+};
+
+export const getCurrentUser = async (input: {
+  userId: string;
+  organizationId: string;
+}) => {
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, input.userId))
+    .limit(1);
+
+  if (!user) {
+    throw new NotFoundError("User");
+  }
+
+  const [org] = await db
+    .select()
+    .from(organizations)
+    .where(eq(organizations.id, input.organizationId))
+    .limit(1);
+
+  if (!org) {
+    throw new NotFoundError("Organization");
+  }
+
+  const { listUserRoles, getUserPermissionList } = await import("./roles.service");
+  const [roles, permissions] = await Promise.all([
+    listUserRoles(input.userId, input.organizationId),
+    getUserPermissionList(input.userId, input.organizationId),
+  ]);
+
+  return {
+    user: {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+    },
+    organization: {
+      id: org.id,
+      name: org.name,
+      slug: org.slug,
+    },
+    roles,
+    permissions,
+  };
 };
