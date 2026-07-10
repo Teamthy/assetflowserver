@@ -173,3 +173,66 @@ export const assetAuditQuerySchema = z.object({
 });
 
 export const exportAssetsQuerySchema = assetListQuerySchema;
+
+// ─── Bulk Operations ──────────────────────────────────────────────────────────
+
+export const bulkDeleteAssetsSchema = z.object({
+  assetIds: z
+    .array(z.uuid("Each asset ID must be a valid UUID"))
+    .min(1, "At least one asset ID is required")
+    .max(100, "Maximum 100 assets per bulk operation"),
+  reason: z.string().trim().max(2000).optional(),
+});
+
+export const bulkTransferAssetsSchema = z
+  .object({
+    assetIds: z
+      .array(z.uuid("Each asset ID must be a valid UUID"))
+      .min(1, "At least one asset ID is required")
+      .max(100, "Maximum 100 assets per bulk operation"),
+    toBranchId: z.uuid("Invalid branch ID").optional(),
+    toUserId: z.uuid("Invalid user ID").optional(),
+    reason: z.string().trim().max(2000).optional(),
+  })
+  .refine((value) => Boolean(value.toBranchId || value.toUserId), {
+    message: "At least one of toBranchId or toUserId is required",
+  });
+
+export const bulkUpdateStatusSchema = z.object({
+  assetIds: z
+    .array(z.uuid("Each asset ID must be a valid UUID"))
+    .min(1, "At least one asset ID is required")
+    .max(100, "Maximum 100 assets per bulk operation"),
+  status: assetStatusSchema,
+  reason: z.string().trim().max(2000).optional(),
+});
+
+// ─── Approval Workflows ───────────────────────────────────────────────────────
+
+export const requestDisposalApprovalSchema = z.object({
+  method: z.enum(["sold", "donated", "scrapped", "lost", "written_off", "other"]),
+  reason: z.string().trim().min(2).max(2000),
+  proceeds: z.coerce.number().nonnegative().default(0),
+  disposedAt: z.coerce.date().optional(),
+  notes: z.string().trim().max(5000).optional(),
+});
+
+export const approveDisposalSchema = z.object({
+  approved: z.boolean(),
+  notes: z.string().trim().max(2000).optional(),
+});
+
+export const requestTransferApprovalSchema = z
+  .object({
+    toBranchId: z.uuid("Invalid branch ID").optional(),
+    toUserId: z.uuid("Invalid user ID").optional(),
+    reason: z.string().trim().max(2000).optional(),
+  })
+  .refine((value) => Boolean(value.toBranchId || value.toUserId), {
+    message: "At least one of toBranchId or toUserId is required",
+  });
+
+export const approveTransferSchema = z.object({
+  approved: z.boolean(),
+  notes: z.string().trim().max(2000).optional(),
+});
