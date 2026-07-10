@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { and, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { db } from "../db";
 import { env } from "../config/env";
 import { AuthenticationError } from "../utils/error";
@@ -7,14 +7,12 @@ import {
   organizationUsers,
   organizations,
   passwordResetTokens,
-  permissions,
   plans,
   refreshTokens,
-  rolePermissions,
-  roles,
-  userRoles,
   users,
 } from "../model";
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
 
 export const normalizeSlug = (slug: string) =>
   slug
@@ -25,13 +23,22 @@ export const normalizeSlug = (slug: string) =>
     .replace(/-+/g, "-");
 
 export const hashToken = (token: string) =>
-  crypto.createHash("sha256").update(`${token}:${env.TOKEN_HASH_PEPPER}`).digest("hex");
+  crypto
+    .createHash("sha256")
+    .update(`${token}:${env.TOKEN_HASH_PEPPER}`)
+    .digest("hex");
 
 export const generateToken = () => crypto.randomBytes(32).toString("hex");
 export const generateOtp = () => String(crypto.randomInt(100000, 1000000));
 
+// ─── User Lookups ─────────────────────────────────────────────────────────────
+
 export const findUserByEmail = async (email: string) => {
-  const [record] = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);
+  const [record] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email.toLowerCase()))
+    .limit(1);
   return record;
 };
 
@@ -44,7 +51,10 @@ export const findOrganizationBySlug = async (slug: string) => {
   return record;
 };
 
-export const isUserInOrganization = async (userId: string, organizationId: string) => {
+export const isUserInOrganization = async (
+  userId: string,
+  organizationId: string
+) => {
   const [record] = await db
     .select()
     .from(organizationUsers)
@@ -52,18 +62,20 @@ export const isUserInOrganization = async (userId: string, organizationId: strin
       and(
         eq(organizationUsers.userId, userId),
         eq(organizationUsers.organizationId, organizationId),
-        eq(organizationUsers.status, "active"),
-      ),
+        eq(organizationUsers.status, "active")
+      )
     )
     .limit(1);
   return record;
 };
 
+// ─── Refresh Tokens ───────────────────────────────────────────────────────────
+
 export const saveRefreshToken = async (
   userId: string,
   organizationId: string,
   rawToken: string,
-  expiresAt: Date,
+  expiresAt: Date
 ) => {
   await db.insert(refreshTokens).values({
     userId,
@@ -82,8 +94,8 @@ export const findValidRefreshToken = async (rawToken: string) => {
       and(
         eq(refreshTokens.tokenHash, tokenHash),
         eq(refreshTokens.isRevoked, false),
-        gt(refreshTokens.expiresAt, new Date()),
-      ),
+        gt(refreshTokens.expiresAt, new Date())
+      )
     )
     .limit(1);
   return record;
@@ -97,11 +109,19 @@ export const revokeRefreshToken = async (rawToken: string) => {
     .where(eq(refreshTokens.tokenHash, tokenHash));
 };
 
-export const revokeRefreshTokensForUser = async (userId: string, organizationId: string) => {
+export const revokeRefreshTokensForUser = async (
+  userId: string,
+  organizationId: string
+) => {
   await db
     .update(refreshTokens)
     .set({ isRevoked: true, revokedAt: new Date() })
-    .where(and(eq(refreshTokens.userId, userId), eq(refreshTokens.organizationId, organizationId)));
+    .where(
+      and(
+        eq(refreshTokens.userId, userId),
+        eq(refreshTokens.organizationId, organizationId)
+      )
+    );
 };
 
 export const revokeAllRefreshTokensForUser = async (userId: string) => {
@@ -128,13 +148,15 @@ export const rotateRefreshToken = async (input: {
         and(
           eq(refreshTokens.tokenHash, currentTokenHash),
           eq(refreshTokens.isRevoked, false),
-          gt(refreshTokens.expiresAt, new Date()),
-        ),
+          gt(refreshTokens.expiresAt, new Date())
+        )
       )
       .returning({ id: refreshTokens.id });
 
     if (revokedTokens.length === 0) {
-      throw new AuthenticationError("Refresh token has been revoked or expired");
+      throw new AuthenticationError(
+        "Refresh token has been revoked or expired"
+      );
     }
 
     await tx.insert(refreshTokens).values({
@@ -146,7 +168,13 @@ export const rotateRefreshToken = async (input: {
   });
 };
 
-export const createPasswordResetToken = async (userId: string, rawToken: string, expiresAt: Date) => {
+// ─── Password Reset ───────────────────────────────────────────────────────────
+
+export const createPasswordResetToken = async (
+  userId: string,
+  rawToken: string,
+  expiresAt: Date
+) => {
   await db.insert(passwordResetTokens).values({
     userId,
     tokenHash: hashToken(rawToken),
@@ -159,14 +187,28 @@ export const findValidPasswordResetToken = async (rawToken: string) => {
   const [record] = await db
     .select()
     .from(passwordResetTokens)
-    .where(and(eq(passwordResetTokens.tokenHash, tokenHash), isNull(passwordResetTokens.usedAt), gt(passwordResetTokens.expiresAt, new Date())))
+    .where(
+      and(
+        eq(passwordResetTokens.tokenHash, tokenHash),
+        isNull(passwordResetTokens.usedAt),
+        gt(passwordResetTokens.expiresAt, new Date())
+      )
+    )
     .limit(1);
   return record;
 };
 
 export const markPasswordResetUsed = async (id: string) => {
-  await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, id));
+  await db
+    .update(passwordResetTokens)
+    .set({ usedAt: new Date() })
+    .where(eq(passwordResetTokens.id, id));
 };
+
+// ─── Organization + Owner Creation ───────────────────────────────────────────
+// NOTE: This transaction only creates the core records.
+// Role seeding happens AFTER this in auth.service via
+// seedRolesForNewOrganization() so we keep the transaction lean.
 
 export const createOrganizationWithOwner = async (input: {
   organizationName: string;
@@ -177,13 +219,8 @@ export const createOrganizationWithOwner = async (input: {
   passwordHash: string;
 }) => {
   return db.transaction(async (tx) => {
-    const readOnlyPermissionSeeds: Array<{ key: string; description: string }> = [
-      { key: "assets.read", description: "View assets" },
-      { key: "branches.read", description: "View branches" },
-      { key: "audit.read", description: "View audit data" },
-      { key: "reports.read", description: "View reports" },
-    ];
 
+    // ─── Plan ─────────────────────────────────────────────────
     const [starterPlan] = await tx
       .insert(plans)
       .values({ name: "Starter", code: "starter", maxStaff: 10 })
@@ -193,6 +230,7 @@ export const createOrganizationWithOwner = async (input: {
       })
       .returning();
 
+    // ─── Owner User ───────────────────────────────────────────
     const [owner] = await tx
       .insert(users)
       .values({
@@ -203,6 +241,7 @@ export const createOrganizationWithOwner = async (input: {
       })
       .returning();
 
+    // ─── Organization ─────────────────────────────────────────
     const [organization] = await tx
       .insert(organizations)
       .values({
@@ -216,65 +255,13 @@ export const createOrganizationWithOwner = async (input: {
       })
       .returning();
 
+    // ─── Membership ───────────────────────────────────────────
     await tx.insert(organizationUsers).values({
       organizationId: organization.id,
       userId: owner.id,
       status: "active",
       joinedAt: new Date(),
       invitedByUserId: owner.id,
-    });
-
-    const [adminRole] = await tx
-      .insert(roles)
-      .values({
-        organizationId: organization.id,
-        name: "admin",
-        description: "Organization administrator",
-        isSystem: true,
-        createdByUserId: owner.id,
-        updatedByUserId: owner.id,
-      })
-      .returning();
-
-    const [auditorRole] = await tx
-      .insert(roles)
-      .values({
-        organizationId: organization.id,
-        name: "auditor",
-        description: "Read-only audit and reporting access",
-        isSystem: true,
-        createdByUserId: owner.id,
-        updatedByUserId: owner.id,
-      })
-      .returning();
-
-    await tx
-      .insert(permissions)
-      .values(readOnlyPermissionSeeds)
-      .onConflictDoNothing();
-
-    const permissionRecords = await tx
-      .select({ id: permissions.id, key: permissions.key })
-      .from(permissions)
-      .where(inArray(permissions.key, readOnlyPermissionSeeds.map((item) => item.key)));
-
-    if (permissionRecords.length > 0) {
-      await tx
-        .insert(rolePermissions)
-        .values(
-          permissionRecords.map((permission) => ({
-            roleId: auditorRole.id,
-            permissionId: permission.id,
-          })),
-        )
-        .onConflictDoNothing();
-    }
-
-    await tx.insert(userRoles).values({
-      organizationId: organization.id,
-      userId: owner.id,
-      roleId: adminRole.id,
-      assignedByUserId: owner.id,
     });
 
     return { owner, organization };

@@ -5,6 +5,7 @@ import { env } from "./src/config/env";
 import { errorHandler } from "./src/middlewares/error";
 import { apiRouter } from "./src/routes";
 import { logger, requestLogger } from "./src/utils/logger";
+import { seedAllOrganizations } from "./src/db/seeds/roles.seeder";
 
 const app = express();
 
@@ -20,9 +21,16 @@ app.use(express.json({ limit: env.REQUEST_BODY_LIMIT }));
 app.use(requestLogger);
 
 app.use("/api", apiRouter);
-
 app.use(errorHandler);
 
-app.listen(env.PORT, () => {
+app.listen(env.PORT, async () => {
   logger.info(`API running on port ${env.PORT}`);
+
+  // Seed system roles for all organizations on startup
+  try {
+    await seedAllOrganizations();
+    logger.info("[Startup] Role seeding completed successfully");
+  } catch (error) {
+    logger.error("[Startup] Role seeding failed", { error });
+  }
 });

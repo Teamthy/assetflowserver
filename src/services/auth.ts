@@ -20,18 +20,30 @@ import {
   saveRefreshToken,
   normalizeSlug,
 } from "../repositories/auth";
-import { AuthenticationError, ConflictError, NotFoundError } from "../utils/error";
-import { organizations, users } from "../model";
-import { organizationUsers } from "../model";
+import {
+  AuthenticationError,
+  ConflictError,
+  NotFoundError,
+} from "../utils/error";
+import { organizations, organizationUsers, users } from "../model";
 import { logger } from "../utils/logger";
 import { createInAppNotification } from "./notifications";
+import { createDefaultSettings } from "./organization-settings.service";
+import { seedRolesForNewOrganization } from "../db/seeds/roles.seeder";
+import {
+  assignRoleToUser,
+  getRoleByName,
+} from "../repositories/permissions";
+
+// ─── Token Utilities ──────────────────────────────────────────────────────────
 
 const parseDurationMs = (value: string): number => {
   const match = value.match(/^(\d+)([smhd])$/);
   if (!match) {
-    logger.error("Invalid JWT_REFRESH_EXPIRES_IN format. Expected values like '7d', '12h', '30m', or '60s'.", {
-      value,
-    });
+    logger.error(
+      "Invalid JWT_REFRESH_EXPIRES_IN format. Expected values like '7d', '12h', '30m', or '60s'.",
+      { value }
+    );
     throw new Error(`Invalid duration format: "${value}"`);
   }
 
@@ -47,52 +59,70 @@ const parseDurationMs = (value: string): number => {
   return amount * unitMap[unit];
 };
 
-const accessExpiresIn = env.JWT_ACCESS_EXPIRES_IN as jwt.SignOptions["expiresIn"];
-const refreshExpiresIn = env.JWT_REFRESH_EXPIRES_IN as jwt.SignOptions["expiresIn"];
+const accessExpiresIn =
+  env.JWT_ACCESS_EXPIRES_IN as jwt.SignOptions["expiresIn"];
+const refreshExpiresIn =
+  env.JWT_REFRESH_EXPIRES_IN as jwt.SignOptions["expiresIn"];
 const refreshTokenTtlMs = parseDurationMs(env.JWT_REFRESH_EXPIRES_IN);
 
-const signAccessToken = (payload: { userId: string; organizationId: string; email: string }) => {
+const signAccessToken = (payload: {
+  userId: string;
+  organizationId: string;
+  email: string;
+}) => {
   if (!env.JWT_SECRET) {
     throw new Error("JWT_SECRET is not configured");
   }
   return jwt.sign(payload, env.JWT_SECRET, { expiresIn: accessExpiresIn });
 };
 
-const signRefreshToken = (payload: { userId: string; organizationId: string }) => {
+const signRefreshToken = (payload: {
+  userId: string;
+  organizationId: string;
+}) => {
   if (!env.JWT_REFRESH_SECRET) {
     throw new Error("JWT_REFRESH_SECRET is not configured");
   }
-  return jwt.sign(payload, env.JWT_REFRESH_SECRET, { expiresIn: refreshExpiresIn });
+  return jwt.sign(payload, env.JWT_REFRESH_SECRET, {
+    expiresIn: refreshExpiresIn,
+  });
 };
+
+// ─── Register ─────────────────────────────────────────────────────────────────
 
 type RegisterInput =
   | {
-      accountType: "personal";
-      organizationName?: string;
-      organizationSlug?: string;
-      firstName: string;
-      lastName: string;
-      email: string;
-      password: string;
-    }
+    accountType: "personal";
+    organizationName?: string;
+    organizationSlug?: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+  }
   | {
-      accountType: "organization";
-      organizationName: string;
-      organizationSlug?: string;
-      firstName: string;
-      lastName: string;
-      email: string;
-      password: string;
-    };
+    accountType: "organization";
+    organizationName: string;
+    organizationSlug?: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+  };
 
 export const register = async (input: RegisterInput) => {
+  // Check for duplicate email
   const existing = await findUserByEmail(input.email);
   if (existing) {
     throw new ConflictError("Email already in use");
   }
 
+  // Build org name and slug
   const emailPrefix = input.email.split("@")[0] ?? "user";
-  const fallbackSlugBase = normalizeSlug(`${emailPrefix}-${input.firstName}-${input.lastName}`) || "workspace";
+  const fallbackSlugBase =
+    normalizeSlug(
+      `${emailPrefix}-${input.firstName}-${input.lastName}`
+    ) || "workspace";
 
   const organizationName =
     input.accountType === "personal"
@@ -102,9 +132,15 @@ export const register = async (input: RegisterInput) => {
   const organizationSlug =
     input.accountType === "personal"
       ? `${fallbackSlugBase}-${Date.now().toString().slice(-6)}`
-      : input.organizationSlug?.trim() || `${normalizeSlug(organizationName)}-${Date.now().toString().slice(-6)}`;
+      : input.organizationSlug?.trim() ||
+      `${normalizeSlug(organizationName)}-${Date.now()
+        .toString()
+        .slice(-6)}`;
 
+  // Hash password
   const passwordHash = await bcrypt.hash(input.password, 12);
+
+  // Create org + owner in transaction (lean — no role seeding inside)
   const { owner, organization } = await createOrganizationWithOwner({
     ...input,
     organizationName,
@@ -112,15 +148,70 @@ export const register = async (input: RegisterInput) => {
     passwordHash,
   });
 
+  // ─── Seed Default Organization Settings ───────────────────────
+  try {
+    await createDefaultSettings({
+      organizationId: organization.id,
+      createdByUserId: owner.id,
+    });
+    logger.info("Seeded default organization settings", {
+      organizationId: organization.id,
+    });
+  } catch (error) {
+    logger.error("Failed to seed default organization settings", {
+      organizationId: organization.id,
+      error,
+    });
+  }
+
+  // ─── Seed All 7 System Roles ───────────────────────────────────
+  // Then assign admin role to the owner
+  try {
+    await seedRolesForNewOrganization(organization.id);
+
+    const adminRole = await getRoleByName(organization.id, "admin");
+    if (adminRole) {
+      await assignRoleToUser(
+        organization.id,
+        owner.id,
+        adminRole.id,
+        owner.id
+      );
+      logger.info("Admin role assigned to org owner", {
+        userId: owner.id,
+        organizationId: organization.id,
+      });
+    } else {
+      logger.warn("Admin role not found after seeding", {
+        organizationId: organization.id,
+      });
+    }
+  } catch (error) {
+    logger.error("Failed to seed system roles for new organization", {
+      organizationId: organization.id,
+      error,
+    });
+  }
+
+  // ─── Issue Tokens ──────────────────────────────────────────────
   const accessToken = signAccessToken({
     userId: owner.id,
     organizationId: organization.id,
     email: owner.email,
   });
-  const refreshToken = signRefreshToken({ userId: owner.id, organizationId: organization.id });
+
+  const refreshToken = signRefreshToken({
+    userId: owner.id,
+    organizationId: organization.id,
+  });
 
   const refreshExpiresAt = new Date(Date.now() + refreshTokenTtlMs);
-  await saveRefreshToken(owner.id, organization.id, refreshToken, refreshExpiresAt);
+  await saveRefreshToken(
+    owner.id,
+    organization.id,
+    refreshToken,
+    refreshExpiresAt
+  );
 
   // Temporarily disabled while email domain/provider setup is being finalized.
   // await sendOnboardingWelcomeEmail({
@@ -152,7 +243,12 @@ export const register = async (input: RegisterInput) => {
   };
 };
 
-export const login = async (input: { email: string; password: string }) => {
+// ─── Login ────────────────────────────────────────────────────────────────────
+
+export const login = async (input: {
+  email: string;
+  password: string;
+}) => {
   const user = await findUserByEmail(input.email);
   if (!user) {
     throw new AuthenticationError("Invalid email or password");
@@ -170,9 +266,20 @@ export const login = async (input: { email: string; password: string }) => {
       organizationSlug: organizations.slug,
     })
     .from(organizationUsers)
-    .innerJoin(organizations, eq(organizations.id, organizationUsers.organizationId))
-    .where(and(eq(organizationUsers.userId, user.id), eq(organizationUsers.status, "active")))
-    .orderBy(asc(organizationUsers.joinedAt), asc(organizationUsers.createdAt))
+    .innerJoin(
+      organizations,
+      eq(organizations.id, organizationUsers.organizationId)
+    )
+    .where(
+      and(
+        eq(organizationUsers.userId, user.id),
+        eq(organizationUsers.status, "active")
+      )
+    )
+    .orderBy(
+      asc(organizationUsers.joinedAt),
+      asc(organizationUsers.createdAt)
+    )
     .limit(2);
 
   if (memberships.length === 0) {
@@ -180,7 +287,9 @@ export const login = async (input: { email: string; password: string }) => {
   }
 
   if (memberships.length > 1) {
-    throw new ConflictError("Multiple organization memberships found. Use organization login.");
+    throw new ConflictError(
+      "Multiple organization memberships found. Use organization login."
+    );
   }
 
   const [orgMembership] = memberships;
@@ -197,7 +306,12 @@ export const login = async (input: { email: string; password: string }) => {
   });
 
   const refreshExpiresAt = new Date(Date.now() + refreshTokenTtlMs);
-  await saveRefreshToken(user.id, orgMembership.organizationId, refreshToken, refreshExpiresAt);
+  await saveRefreshToken(
+    user.id,
+    orgMembership.organizationId,
+    refreshToken,
+    refreshExpiresAt
+  );
 
   logger.info("User login successful", {
     userId: user.id,
@@ -221,6 +335,8 @@ export const login = async (input: { email: string; password: string }) => {
   };
 };
 
+// ─── Organization Login ───────────────────────────────────────────────────────
+
 export const organizationLogin = async (input: {
   organizationSlug: string;
   email: string;
@@ -243,7 +359,9 @@ export const organizationLogin = async (input: {
 
   const membership = await isUserInOrganization(user.id, organization.id);
   if (!membership) {
-    throw new AuthenticationError("User does not belong to this organization");
+    throw new AuthenticationError(
+      "User does not belong to this organization"
+    );
   }
 
   const accessToken = signAccessToken({
@@ -251,10 +369,19 @@ export const organizationLogin = async (input: {
     organizationId: organization.id,
     email: user.email,
   });
-  const refreshToken = signRefreshToken({ userId: user.id, organizationId: organization.id });
+
+  const refreshToken = signRefreshToken({
+    userId: user.id,
+    organizationId: organization.id,
+  });
 
   const refreshExpiresAt = new Date(Date.now() + refreshTokenTtlMs);
-  await saveRefreshToken(user.id, organization.id, refreshToken, refreshExpiresAt);
+  await saveRefreshToken(
+    user.id,
+    organization.id,
+    refreshToken,
+    refreshExpiresAt
+  );
 
   logger.info("Organization login successful", {
     userId: user.id,
@@ -279,11 +406,18 @@ export const organizationLogin = async (input: {
   };
 };
 
+// ─── Verify Password ──────────────────────────────────────────────────────────
+
 export const verifyPassword = async (input: {
   userId: string;
   password: string;
 }) => {
-  const [user] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, input.userId))
+    .limit(1);
+
   if (!user) {
     throw new NotFoundError("User");
   }
@@ -292,9 +426,12 @@ export const verifyPassword = async (input: {
   return { valid };
 };
 
+// ─── Request Password Reset ───────────────────────────────────────────────────
+
 export const requestPasswordReset = async (input: { email: string }) => {
   const user = await findUserByEmail(input.email);
   if (!user) {
+    // Silent return — don't reveal whether email exists
     return;
   }
 
@@ -303,7 +440,10 @@ export const requestPasswordReset = async (input: { email: string }) => {
 
   await createPasswordResetToken(user.id, rawToken, expiresAt);
 
-  if (env.LOG_OTP_FOR_DEBUG === true && env.NODE_ENV !== "production") {
+  if (
+    env.LOG_OTP_FOR_DEBUG === true &&
+    env.NODE_ENV !== "production"
+  ) {
     logger.warn("Password reset OTP generated (debug mode)", {
       email: user.email,
       otp: rawToken,
@@ -319,10 +459,7 @@ export const requestPasswordReset = async (input: { email: string }) => {
   //   expiryMinutes: 30,
   // });
 
-  if (env.LOG_OTP_FOR_DEBUG === true && env.NODE_ENV !== "production") {
-    logger.info(`OTP email generated: ${user.email} -> ${rawToken}`);
-  }
-
+  // In-app notification
   const [membership] = await db
     .select({ organizationId: organizationUsers.organizationId })
     .from(organizationUsers)
@@ -342,10 +479,17 @@ export const requestPasswordReset = async (input: { email: string }) => {
     });
   }
 
-  logger.info("Password reset OTP sent", { email: input.email.toLowerCase() });
+  logger.info("Password reset OTP sent", {
+    email: input.email.toLowerCase(),
+  });
 };
 
-export const resetPassword = async (input: { token: string; newPassword: string }) => {
+// ─── Reset Password ───────────────────────────────────────────────────────────
+
+export const resetPassword = async (input: {
+  token: string;
+  newPassword: string;
+}) => {
   const tokenRecord = await findValidPasswordResetToken(input.token);
   if (!tokenRecord) {
     throw new AuthenticationError("Invalid or expired reset token");
@@ -353,7 +497,11 @@ export const resetPassword = async (input: { token: string; newPassword: string 
 
   const newHash = await bcrypt.hash(input.newPassword, 12);
 
-  await db.update(users).set({ passwordHash: newHash, updatedAt: new Date() }).where(eq(users.id, tokenRecord.userId));
+  await db
+    .update(users)
+    .set({ passwordHash: newHash, updatedAt: new Date() })
+    .where(eq(users.id, tokenRecord.userId));
+
   await markPasswordResetUsed(tokenRecord.id);
   await revokeAllRefreshTokensForUser(tokenRecord.userId);
 
@@ -362,24 +510,38 @@ export const resetPassword = async (input: { token: string; newPassword: string 
   return { message: "Password reset successful" };
 };
 
+// ─── Change Password ──────────────────────────────────────────────────────────
+
 export const changePassword = async (input: {
   userId: string;
   currentPassword: string;
   newPassword: string;
 }) => {
-  const [user] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, input.userId))
+    .limit(1);
+
   if (!user) {
     throw new NotFoundError("User");
   }
 
-  const isValid = await bcrypt.compare(input.currentPassword, user.passwordHash);
+  const isValid = await bcrypt.compare(
+    input.currentPassword,
+    user.passwordHash
+  );
   if (!isValid) {
     throw new AuthenticationError("Current password is incorrect");
   }
 
   const newHash = await bcrypt.hash(input.newPassword, 12);
 
-  await db.update(users).set({ passwordHash: newHash, updatedAt: new Date() }).where(eq(users.id, input.userId));
+  await db
+    .update(users)
+    .set({ passwordHash: newHash, updatedAt: new Date() })
+    .where(eq(users.id, input.userId));
+
   await revokeAllRefreshTokensForUser(input.userId);
 
   logger.warn("Password changed successfully", { userId: input.userId });
@@ -387,13 +549,22 @@ export const changePassword = async (input: {
   return { message: "Password changed successfully" };
 };
 
+// ─── Refresh Auth Token ───────────────────────────────────────────────────────
+
 export const refreshAuthToken = async (input: { refreshToken: string }) => {
-  let payload: jwt.JwtPayload & { userId: string; organizationId: string };
+  let payload: jwt.JwtPayload & {
+    userId: string;
+    organizationId: string;
+  };
+
   try {
     if (!env.JWT_REFRESH_SECRET) {
       throw new Error("JWT_REFRESH_SECRET is not configured");
     }
-    payload = jwt.verify(input.refreshToken, env.JWT_REFRESH_SECRET) as jwt.JwtPayload & {
+    payload = jwt.verify(
+      input.refreshToken,
+      env.JWT_REFRESH_SECRET
+    ) as jwt.JwtPayload & {
       userId: string;
       organizationId: string;
     };
@@ -407,14 +578,24 @@ export const refreshAuthToken = async (input: { refreshToken: string }) => {
 
   const tokenRecord = await findValidRefreshToken(input.refreshToken);
   if (!tokenRecord) {
-    throw new AuthenticationError("Refresh token has been revoked or expired");
+    throw new AuthenticationError(
+      "Refresh token has been revoked or expired"
+    );
   }
 
-  if (tokenRecord.userId !== payload.userId || tokenRecord.organizationId !== payload.organizationId) {
+  if (
+    tokenRecord.userId !== payload.userId ||
+    tokenRecord.organizationId !== payload.organizationId
+  ) {
     throw new AuthenticationError("Refresh token payload mismatch");
   }
 
-  const [user] = await db.select().from(users).where(eq(users.id, payload.userId)).limit(1);
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, payload.userId))
+    .limit(1);
+
   if (!user) {
     throw new NotFoundError("User");
   }
@@ -444,8 +625,13 @@ export const refreshAuthToken = async (input: { refreshToken: string }) => {
     organizationId: payload.organizationId,
   });
 
-  return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+  return {
+    accessToken: newAccessToken,
+    refreshToken: newRefreshToken,
+  };
 };
+
+// ─── Logout ───────────────────────────────────────────────────────────────────
 
 export const logout = async (input: {
   userId: string;
@@ -469,11 +655,19 @@ export const logout = async (input: {
   return { message: "Logged out from all sessions" };
 };
 
-export const logoutAll = async (input: { userId: string; organizationId: string }) => {
+// ─── Logout All ───────────────────────────────────────────────────────────────
+
+export const logoutAll = async (input: {
+  userId: string;
+  organizationId: string;
+}) => {
   await revokeAllRefreshTokensForUser(input.userId);
-  logger.info("User logged out from all sessions across organizations", {
-    userId: input.userId,
-    organizationId: input.organizationId,
-  });
+  logger.info(
+    "User logged out from all sessions across organizations",
+    {
+      userId: input.userId,
+      organizationId: input.organizationId,
+    }
+  );
   return { message: "Logged out from all sessions" };
 };
