@@ -4,3 +4,6 @@ export * from "./asset";
 export * from "./branch";
 export * from "./notification";
 export * from "./maintenance";
+export * from "./organization-settings";
+export * from "./approvals";
+export * from "./documents";

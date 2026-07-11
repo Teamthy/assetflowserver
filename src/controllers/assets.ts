@@ -240,3 +240,102 @@ export const importAssets = async (req: Request, res: Response, next: NextFuncti
     next(error);
   }
 };
+import { generateImportTemplate } from "../services/assets.template.service";
+import {
+  generateAssetQrCode,
+  generateBulkQrCodes,
+  scanAssetQrCode,
+} from "../services/assets.qr.service";
+
+// ─── Download Import Template ─────────────────────────────────────────────────
+
+export const downloadImportTemplate = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const buffer = await generateImportTemplate();
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=asset-import-template.xlsx"
+    );
+    res.setHeader("Content-Length", buffer.length);
+
+    return res.status(200).send(buffer);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// ─── Generate QR Code ─────────────────────────────────────────────────────────
+
+export const generateQrCode = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const auth = requireAuthContext(req);
+    const params = parseData(assetParamsSchema, req.params);
+
+    const data = await generateAssetQrCode(auth.organizationId, params.id);
+
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// ─── Bulk Generate QR Codes ───────────────────────────────────────────────────
+
+const bulkQrSchema = z.object({
+  assetIds: z
+    .array(z.string().uuid("Each asset ID must be a valid UUID"))
+    .min(1, "At least one asset ID is required")
+    .max(100, "Maximum 100 assets per bulk request"),
+});
+
+export const generateBulkQrCodesController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const auth = requireAuthContext(req);
+    const payload = parseData(bulkQrSchema, req.body);
+
+    const data = await generateBulkQrCodes(
+      auth.organizationId,
+      payload.assetIds
+    );
+
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// ─── Scan Asset QR Code ───────────────────────────────────────────────────────
+
+export const scanAsset = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const auth = requireAuthContext(req);
+    const params = parseData(assetParamsSchema, req.params);
+
+    const data = await scanAssetQrCode(auth.organizationId, params.id);
+
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+};
