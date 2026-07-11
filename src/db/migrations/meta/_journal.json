@@ -85,6 +85,13 @@
       "when": 1783291200000,
       "tag": "0011_scaling_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1783771539429,
+      "tag": "0012_freezing_viper",
+      "breakpoints": true
     }
   ]
 }

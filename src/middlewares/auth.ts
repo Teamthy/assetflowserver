@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { env } from "../config/env";
 import { AuthenticationError } from "../utils/error";
+import { setSentryUser } from "../config/sentry";
 
 export const requireAuth = (req: Request, _res: Response, next: NextFunction) => {
   if (!env.JWT_SECRET) {
@@ -20,6 +21,7 @@ export const requireAuth = (req: Request, _res: Response, next: NextFunction) =>
     const payload = jwt.verify(token, env.JWT_SECRET) as jwt.JwtPayload & {
       userId: string;
       organizationId: string;
+      email?: string;
     };
 
     if (!payload.userId || !payload.organizationId) {
@@ -27,6 +29,14 @@ export const requireAuth = (req: Request, _res: Response, next: NextFunction) =>
     }
 
     req.auth = payload;
+
+    // Set Sentry user context for this request
+    setSentryUser({
+      userId: payload.userId,
+      organizationId: payload.organizationId,
+      email: payload.email,
+    });
+
     return next();
   } catch {
     return next(new AuthenticationError("Invalid access token"));

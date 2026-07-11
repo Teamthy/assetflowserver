@@ -1,0 +1,197 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import crypto from "node:crypto";
+import { env } from "../config/env";
+import {
+    createDocument,
+    findDocumentById,
+    listDocuments,
+    softDeleteDocument,
+} from "../repositories/documents";
+import { UploadDocumentInput, ListDocumentsQuery } from "../validators/documents";
+import {
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+} from "../utils/error";
+import { logger } from "../utils/logger";
+
+const ALLOWED_MIME_TYPES = new Set([
+    // Images
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    // Documents
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    // Text
+    "text/plain",
+    "text/csv",
+]);
+
+// ─── Upload Document ──────────────────────────────────────────────────────────
+
+export async function uploadDocumentService(input: {
+    organizationId: string;
+    uploadedByUserId: string;
+    file: Express.Multer.File;
+    payload: UploadDocumentInput;
+}) {
+    const { organizationId, uploadedByUserId, file, payload } = input;
+
+    // Validate mime type
+    if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
+        // Delete the uploaded temp file
+        await fs.unlink(file.path).catch(() => undefined);
+        throw new ValidationError("Validation failed", [
+            {
+                path: ["file"],
+                message: `File type ${file.mimetype} is not allowed`,
+            },
+        ]);
+    }
+
+    // Validate file size
+    if (file.size > env.MAX_FILE_SIZE_BYTES) {
+        await fs.unlink(file.path).catch(() => undefined);
+        throw new ValidationError("Validation failed", [
+            {
+                path: ["file"],
+                message: `File exceeds maximum size of ${env.MAX_FILE_SIZE_BYTES} bytes`,
+            },
+        ]);
+    }
+
+    // Build organized storage path
+    // Structure: uploads/{organizationId}/{entityType}/{entityId}/{uniqueFileName}
+    const uniqueId = crypto.randomBytes(16).toString("hex");
+    const ext = path.extname(file.originalname);
+    const uniqueFileName = `${Date.now()}-${uniqueId}${ext}`;
+
+    const relativeDir = path.join(
+        organizationId,
+        payload.entityType,
+        payload.entityId
+    );
+
+    const absoluteDir = path.join(env.UPLOAD_DIR, relativeDir);
+    const absolutePath = path.join(absoluteDir, uniqueFileName);
+    const relativeStoragePath = path.join(relativeDir, uniqueFileName);
+
+    try {
+        // Create directory structure
+        await fs.mkdir(absoluteDir, { recursive: true });
+
+        // Move file from temp location to permanent storage
+        await fs.rename(file.path, absolutePath);
+    } catch (error) {
+        // Clean up temp file if move failed
+        await fs.unlink(file.path).catch(() => undefined);
+        logger.error("[Documents] Failed to store file", {
+            error: error instanceof Error ? error.message : String(error),
+            path: absolutePath,
+        });
+        throw new ConflictError("Failed to store uploaded file");
+    }
+
+    // Create DB record
+    try {
+        const record = await createDocument({
+            organizationId,
+            entityType: payload.entityType,
+            entityId: payload.entityId,
+            category: payload.category,
+            fileName: uniqueFileName,
+            originalFileName: file.originalname,
+            mimeType: file.mimetype,
+            fileSize: file.size,
+            storagePath: relativeStoragePath,
+            description: payload.description,
+            uploadedByUserId,
+        });
+
+        logger.info("[Documents] Document uploaded", {
+            organizationId,
+            documentId: record.id,
+            entityType: payload.entityType,
+            entityId: payload.entityId,
+            category: payload.category,
+            fileSize: file.size,
+        });
+
+        return record;
+    } catch (error) {
+        // Rollback: delete the file if DB insert failed
+        await fs.unlink(absolutePath).catch(() => undefined);
+        throw error;
+    }
+}
+
+// ─── Get Document Stream (for download) ───────────────────────────────────────
+
+export async function getDocumentDownloadService(
+    organizationId: string,
+    documentId: string
+) {
+    const document = await findDocumentById(organizationId, documentId);
+    if (!document) {
+        throw new NotFoundError("Document");
+    }
+
+    const absolutePath = path.join(env.UPLOAD_DIR, document.storagePath);
+
+    // Verify file exists on disk
+    try {
+        await fs.access(absolutePath);
+    } catch {
+        logger.error("[Documents] File missing on disk", {
+            documentId,
+            storagePath: document.storagePath,
+        });
+        throw new NotFoundError("Document file");
+    }
+
+    return {
+        document,
+        absolutePath,
+    };
+}
+
+// ─── List Documents ───────────────────────────────────────────────────────────
+
+export async function listDocumentsService(
+    organizationId: string,
+    query: ListDocumentsQuery
+) {
+    return listDocuments(organizationId, query);
+}
+
+// ─── Delete Document ──────────────────────────────────────────────────────────
+
+export async function deleteDocumentService(
+    organizationId: string,
+    documentId: string,
+    actorUserId: string
+) {
+    const document = await findDocumentById(organizationId, documentId);
+    if (!document) {
+        throw new NotFoundError("Document");
+    }
+
+    // Soft delete in DB
+    await softDeleteDocument(organizationId, documentId);
+
+    // Optionally delete the file from disk
+    // We keep it for now for audit purposes; can be cleaned up by a scheduled job
+    logger.info("[Documents] Document soft-deleted", {
+        organizationId,
+        documentId,
+        actorUserId,
+    });
+
+    return { message: "Document deleted successfully" };
+}
