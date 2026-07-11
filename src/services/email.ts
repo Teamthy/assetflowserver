@@ -134,3 +134,42 @@ export const sendNotificationEmail = async (input: {
     resendEmailId: data?.id,
   });
 };
+export const sendInvitationEmail = async (input: {
+  to: string;
+  inviteeName: string;
+  inviterName: string;
+  organizationName: string;
+  acceptUrl: string;
+  expiryHours: number;
+}) => {
+  const html = await renderTemplate("invite.hbs", {
+    inviteeName: input.inviteeName,
+    inviterName: input.inviterName,
+    organizationName: input.organizationName,
+    acceptUrl: input.acceptUrl,
+    expiryHours: String(input.expiryHours),
+    supportEmail: env.SUPPORT_EMAIL,
+  });
+
+  const { data, error } = await resend.emails.send({
+    from: env.RESEND_FROM_EMAIL,
+    to: input.to,
+    subject: `You've been invited to join ${input.organizationName} on AssetFlow`,
+    html,
+  });
+
+  if (error) {
+    logger.error("Resend invitation email send failed", {
+      to: input.to,
+      organizationName: input.organizationName,
+      resendError: error,
+    });
+    throw new Error(`Failed to send invitation email: ${JSON.stringify(error)}`);
+  }
+
+  logger.info("Resend invitation email send success", {
+    to: input.to,
+    organizationName: input.organizationName,
+    resendEmailId: data?.id,
+  });
+};
