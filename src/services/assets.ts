@@ -16,8 +16,9 @@ import {
 } from "../repositories/assets";
 import { findOrganizationById } from "../repositories/organizations";
 import { db } from "../db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { organizationUsers } from "../model/user";
+import { branches } from "../model/branch";
 import {
   AssetLifecycleQuery,
   AssetListQuery,
@@ -40,6 +41,29 @@ import {
 import {
   buildAssetRecognitionPersistencePayload,
 } from "./assets.recognition.service";
+
+const NOTIFICATION_BATCH_CONCURRENCY = 10;
+
+const runWithConcurrency = async <T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) => {
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex];
+        nextIndex += 1;
+        if (item === undefined) continue;
+        await worker(item);
+      }
+    },
+  );
+
+  await Promise.all(workers);
+};
 
 const assertBranchRequiredIfEnabled = async (
   organizationId: string,
@@ -90,12 +114,47 @@ const assertActiveOrganizationMember = async (
   }
 };
 
+const assertBranchInOrganization = async (
+  organizationId: string,
+  branchId: string | undefined,
+  field: string,
+) => {
+  if (!branchId) return;
+
+  const [branch] = await db
+    .select({ id: branches.id })
+    .from(branches)
+    .where(
+      and(
+        eq(branches.organizationId, organizationId),
+        eq(branches.id, branchId),
+        isNull(branches.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!branch) {
+    throw new ValidationError("Validation failed", [
+      {
+        path: [field],
+        message: "Branch must belong to this organization",
+      },
+    ]);
+  }
+};
+
 export const createAssetService = async (
   organizationId: string,
   actorUserId: string,
   payload: CreateAssetInput,
 ) => {
   await assertBranchRequiredIfEnabled(organizationId, payload.branchId);
+  await assertBranchInOrganization(organizationId, payload.branchId, "branchId");
+  await assertActiveOrganizationMember(
+    organizationId,
+    payload.assignedTo,
+    "assignedTo",
+  );
   const recognitionPayload = buildAssetRecognitionPersistencePayload({
     purchaseCost: payload.purchaseCost,
     expectedUsefulLifeMonths: payload.expectedUsefulLifeMonths,
@@ -162,6 +221,16 @@ export const updateAssetService = async (
   }
 
   const current = await getAssetByIdService(organizationId, assetId);
+  if (payload.branchId !== undefined) {
+    await assertBranchInOrganization(organizationId, payload.branchId, "branchId");
+  }
+  if (payload.assignedTo !== undefined) {
+    await assertActiveOrganizationMember(
+      organizationId,
+      payload.assignedTo,
+      "assignedTo",
+    );
+  }
   const recognitionFieldsChanged =
     payload.purchaseCost !== undefined ||
     payload.expectedUsefulLifeMonths !== undefined ||
@@ -248,6 +317,12 @@ export const transferAssetService = async (
   actorUserId: string,
   payload: TransferAssetInput,
 ) => {
+  await assertBranchInOrganization(organizationId, payload.toBranchId, "toBranchId");
+  await assertActiveOrganizationMember(
+    organizationId,
+    payload.toUserId,
+    "toUserId",
+  );
   const record = await transferAsset(organizationId, assetId, actorUserId, payload);
   if (!record) throw new NotFoundError("Asset");
   logger.info("Asset transferred", { organizationId, actorUserId, assetId });
@@ -413,16 +488,18 @@ export const notifyWarrantyExpiringAssetsService = async (
 ) => {
   const expiringAssets = await listWarrantyExpiringAssets(organizationId, daysAhead);
 
-  await Promise.all(
-    expiringAssets.map((asset) =>
-      notifyWarrantyExpiringSoon({
+  await runWithConcurrency(
+    expiringAssets,
+    NOTIFICATION_BATCH_CONCURRENCY,
+    async (asset) => {
+      await notifyWarrantyExpiringSoon({
         organizationId,
         assetId: asset.id,
         assetName: asset.name,
         assetTag: asset.assetTag,
         warrantyExpiryDate: asset.warrantyExpiryDate!,
-      }),
-    ),
+      });
+    },
   );
 
   return { notified: expiringAssets.length };

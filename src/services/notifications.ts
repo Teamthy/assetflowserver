@@ -12,6 +12,44 @@ import { NotFoundError } from "../utils/error";
 import { logger } from "../utils/logger";
 import { sendNotificationEmail } from "./email";
 
+const NOTIFICATION_FANOUT_CONCURRENCY = 10;
+
+const runWithConcurrency = async <T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) => {
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex];
+        nextIndex += 1;
+        if (item === undefined) continue;
+        await worker(item);
+      }
+    },
+  );
+
+  await Promise.all(workers);
+};
+
+const sendEmailForNotificationInBackground = (
+  input: Parameters<typeof createNotification>[0],
+) => {
+  setImmediate(() => {
+    void sendEmailForNotification(input).catch((error) => {
+      logger.error("Failed to send notification email", {
+        organizationId: input.organizationId,
+        userId: input.userId,
+        type: input.type,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  });
+};
+
 export const createInAppNotification = async (input: Parameters<typeof createNotification>[0]) => {
   try {
     const notification = await createNotification(input);
@@ -23,16 +61,7 @@ export const createInAppNotification = async (input: Parameters<typeof createNot
       type: input.type,
     });
 
-    try {
-      await sendEmailForNotification(input);
-    } catch (error) {
-      logger.error("Failed to send notification email", {
-        organizationId: input.organizationId,
-        userId: input.userId,
-        type: input.type,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    sendEmailForNotificationInBackground(input);
 
     return notification;
   } catch (error) {
@@ -63,18 +92,16 @@ export const notifyOrganizationAdmins = async (input: {
     return;
   }
 
-  await Promise.all(
-    admins.map((admin) =>
-      createInAppNotification({
-        organizationId: input.organizationId,
-        userId: admin.id,
-        type: input.type,
-        title: input.title,
-        message: input.message,
-        metadata: input.metadata,
-      }),
-    ),
-  );
+  await runWithConcurrency(admins, NOTIFICATION_FANOUT_CONCURRENCY, async (admin) => {
+    await createInAppNotification({
+      organizationId: input.organizationId,
+      userId: admin.id,
+      type: input.type,
+      title: input.title,
+      message: input.message,
+      metadata: input.metadata,
+    });
+  });
 };
 
 export const notifyWarrantyExpiringSoon = async (input: {

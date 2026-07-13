@@ -1,4 +1,5 @@
 import { boolean, index, jsonb, pgEnum, pgTable, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { organizations, users } from "./user";
 
 export const notificationTypeEnum = pgEnum("notification_type", [
@@ -40,15 +41,24 @@ export const notifications = pgTable(
     readAt: timestamp("read_at", { withTimezone: true }),
   },
   (table) => ({
-    notificationsOrgUserCreatedAtIdx: index("notifications_org_user_created_at_idx").on(
-      table.organizationId,
-      table.userId,
-      table.createdAt,
-    ),
-    notificationsOrgUserReadIdx: index("notifications_org_user_read_idx").on(
-      table.organizationId,
-      table.userId,
-      table.isRead,
-    ),
-  }),
-);
+	    notificationsOrgUserCreatedAtIdx: index("notifications_org_user_created_at_idx").on(
+	      table.organizationId,
+	      table.userId,
+	      table.createdAt,
+	    ),
+	    notificationsOrgUserCreatedAtIdIdx: index("notifications_org_user_created_at_id_idx").on(
+	      table.organizationId,
+	      table.userId,
+	      table.createdAt,
+	      table.id,
+	    ),
+	    notificationsOrgUserReadIdx: index("notifications_org_user_read_idx").on(
+	      table.organizationId,
+	      table.userId,
+	      table.isRead,
+	    ),
+	    notificationsOrgUserUnreadCreatedAtIdx: index("notifications_org_user_unread_created_at_idx")
+	      .on(table.organizationId, table.userId, table.createdAt, table.id)
+	      .where(sql`${table.isRead} = false`),
+	  }),
+	);
