@@ -14,6 +14,8 @@ const ssl =
 export const pool = new Pool({
   connectionString: env.DATABASE_URL,
   ssl,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
   max: env.PG_POOL_MAX,
   idleTimeoutMillis: env.PG_IDLE_TIMEOUT_MS,
   connectionTimeoutMillis: env.PG_CONNECTION_TIMEOUT_MS,
