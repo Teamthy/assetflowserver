@@ -7,6 +7,7 @@ import { notificationsRouter } from "./notifications";
 import { auditRouter } from "./audit";
 import { reportsRouter } from "./reports";
 import { documentsRouter } from "./documents";
+import { approvalsRouter } from "./approvals";
 
 export const apiRouter = Router();
 
@@ -22,3 +23,4 @@ apiRouter.use("/maintenance", maintenanceRouter);
 apiRouter.use("/audit", auditRouter);
 apiRouter.use("/reports", reportsRouter);
 apiRouter.use("/documents", documentsRouter);
+apiRouter.use("/approvals", approvalsRouter);
