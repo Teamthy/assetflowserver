@@ -8,6 +8,8 @@ import { auditRouter } from "./audit";
 import { reportsRouter } from "./reports";
 import { documentsRouter } from "./documents";
 import { approvalsRouter } from "./approvals";
+import { usersRouter } from "./users";
+import { invitationsRouter } from "./invitations";
 
 export const apiRouter = Router();
 
@@ -24,3 +26,5 @@ apiRouter.use("/audit", auditRouter);
 apiRouter.use("/reports", reportsRouter);
 apiRouter.use("/documents", documentsRouter);
 apiRouter.use("/approvals", approvalsRouter);
+apiRouter.use("/users", usersRouter);
+apiRouter.use("/invitations", invitationsRouter);

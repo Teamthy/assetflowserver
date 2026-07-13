@@ -5,6 +5,8 @@ import {
     listOrganizationRolesService,
     listOrganizationUsersService,
     removeRoleFromUserService,
+    suspendUserService,
+    reactivateUserService,
 } from "../services/user";
 import { AuthenticationError } from "../utils/error";
 
@@ -25,6 +27,7 @@ export const listOrganizationUsers = async (
         );
 
         return res.status(200).json({
+            success: true,
             data: members,
             total: members.length,
         });
@@ -53,6 +56,7 @@ export const getUserRoles = async (
         );
 
         return res.status(200).json({
+            success: true,
             data: userWithRoles,
         });
     } catch (error) {
@@ -77,8 +81,9 @@ export const assignUserRole = async (
 
         if (!roleId || typeof roleId !== "string") {
             return res.status(400).json({
-                error: "VALIDATION_ERROR",
-                message: "roleId is required",
+                success: false,
+                code: "VALIDATION_ERROR",
+                message: "roleId is required and must be a string",
             });
         }
 
@@ -89,9 +94,7 @@ export const assignUserRole = async (
             roleId,
         });
 
-        return res.status(200).json({
-            data: result,
-        });
+        return res.status(200).json({ success: true, data: result });
     } catch (error) {
         return next(error);
     }
@@ -119,9 +122,7 @@ export const removeUserRole = async (
             roleId,
         });
 
-        return res.status(200).json({
-            data: result,
-        });
+        return res.status(200).json({ success: true, data: result });
     } catch (error) {
         return next(error);
     }
@@ -144,9 +145,62 @@ export const listOrganizationRoles = async (
         );
 
         return res.status(200).json({
+            success: true,
             data: roles,
             total: roles.length,
         });
+    } catch (error) {
+        return next(error);
+    }
+};
+
+// ─── Suspend User ─────────────────────────────────────────────────────────────
+
+export const suspendUser = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        if (!req.auth?.organizationId || !req.auth?.userId) {
+            return next(new AuthenticationError());
+        }
+
+        const targetUserId = String(req.params.userId);
+
+        const result = await suspendUserService({
+            organizationId: req.auth.organizationId,
+            actorUserId: req.auth.userId,
+            targetUserId,
+        });
+
+        return res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        return next(error);
+    }
+};
+
+// ─── Reactivate User ──────────────────────────────────────────────────────────
+
+export const reactivateUser = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        if (!req.auth?.organizationId || !req.auth?.userId) {
+            return next(new AuthenticationError());
+        }
+
+        const targetUserId = String(req.params.userId);
+
+        const result = await reactivateUserService({
+            organizationId: req.auth.organizationId,
+            actorUserId: req.auth.userId,
+            targetUserId,
+        });
+
+        return res.status(200).json({ success: true, data: result });
     } catch (error) {
         return next(error);
     }
