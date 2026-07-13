@@ -25,6 +25,7 @@ import { organizations, users } from "../model";
 import { organizationUsers } from "../model";
 import { logger } from "../utils/logger";
 import { createInAppNotification } from "./notifications";
+import { seedRolesForNewOrganization } from "../db/seeds/roles.seeder";
 
 const parseDurationMs = (value: string): number => {
   const match = value.match(/^(\d+)([smhd])$/);
@@ -67,23 +68,23 @@ const signRefreshToken = (payload: { userId: string; organizationId: string }) =
 
 type RegisterInput =
   | {
-      accountType: "personal";
-      organizationName?: string;
-      organizationSlug?: string;
-      firstName: string;
-      lastName: string;
-      email: string;
-      password: string;
-    }
+    accountType: "personal";
+    organizationName?: string;
+    organizationSlug?: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+  }
   | {
-      accountType: "organization";
-      organizationName: string;
-      organizationSlug?: string;
-      firstName: string;
-      lastName: string;
-      email: string;
-      password: string;
-    };
+    accountType: "organization";
+    organizationName: string;
+    organizationSlug?: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+  };
 
 export const register = async (input: RegisterInput) => {
   const existing = await findUserByEmail(input.email);
@@ -111,6 +112,9 @@ export const register = async (input: RegisterInput) => {
     organizationSlug,
     passwordHash,
   });
+
+  // Seed system roles and permissions for the new organization
+  await seedRolesForNewOrganization(organization.id);
 
   const accessToken = signAccessToken({
     userId: owner.id,

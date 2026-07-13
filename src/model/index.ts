@@ -7,3 +7,4 @@ export * from "./maintenance";
 export * from "./organization-settings";
 export * from "./approvals";
 export * from "./documents";
+export * from "./audit";
