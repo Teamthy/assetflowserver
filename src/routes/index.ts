@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { authRouter } from "./auth";
-import { assetsRouter } from "./assets";
-import { branchesRouter } from "./branches";
+import { assetsRouter } from "./assets.routes";        // ← was ./assets
+import { branchesRouter } from "./branches.routes";    // ← was ./branches
+import { maintenanceRouter } from "./maintenance.routes"; // ← was ./maintenance
 import { notificationsRouter } from "./notifications";
-import { maintenanceRouter } from "./maintenance";
 import { auditRouter } from "./audit";
+
 export const apiRouter = Router();
 
 apiRouter.get("/health", (_req, res) => {
