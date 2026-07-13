@@ -22,7 +22,7 @@ const envSchema = z.object({
 	    .default(false),
 	  PG_POOL_MAX: z.coerce.number().int().positive().default(10),
 	  PG_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
-	  PG_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(2_000),
+	  PG_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
 	  PG_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
 	  ASSET_IMPORT_MAX_FILE_BYTES: z.coerce
 	    .number()

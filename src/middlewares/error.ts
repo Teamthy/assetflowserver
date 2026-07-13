@@ -2,6 +2,34 @@ import { NextFunction, Request, Response } from "express";
 import { isAppError, toAppError, ValidationError } from "../utils/error";
 import { logger, safeStringify } from "../utils/logger";
 
+const getErrorDetails = (err: unknown) => {
+  if (!err || typeof err !== "object") return undefined;
+
+  const error = err as {
+    name?: unknown;
+    code?: unknown;
+    message?: unknown;
+    cause?: {
+      name?: unknown;
+      code?: unknown;
+      message?: unknown;
+    };
+  };
+
+  return {
+    name: error.name,
+    code: error.code,
+    message: error.message,
+    cause: error.cause
+      ? {
+          name: error.cause.name,
+          code: error.cause.code,
+          message: error.cause.message,
+        }
+      : undefined,
+  };
+};
+
 export const errorHandler = (
   err: unknown,
   req: Request,
@@ -20,6 +48,7 @@ export const errorHandler = (
       method: req.method,
       path: req.originalUrl,
       validationErrors,
+      error: getErrorDetails(err),
       stack: appError.stack,
     }),
   );
