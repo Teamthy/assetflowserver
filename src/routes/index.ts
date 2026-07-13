@@ -10,6 +10,10 @@ import { documentsRouter } from "./documents";
 import { approvalsRouter } from "./approvals";
 import { usersRouter } from "./users";
 import { invitationsRouter } from "./invitations";
+import { organizationSettingsRouter } from "./organization-settings";
+import { depreciationRouter } from "./depreciation";
+import { bulkRouter } from "./bulk";
+import { docsRouter } from "./docs";
 
 export const apiRouter = Router();
 
@@ -28,3 +32,7 @@ apiRouter.use("/documents", documentsRouter);
 apiRouter.use("/approvals", approvalsRouter);
 apiRouter.use("/users", usersRouter);
 apiRouter.use("/invitations", invitationsRouter);
+apiRouter.use("/organization-settings", organizationSettingsRouter);
+apiRouter.use("/depreciation", depreciationRouter);
+apiRouter.use("/bulk", bulkRouter);
+apiRouter.use("/docs", docsRouter);
