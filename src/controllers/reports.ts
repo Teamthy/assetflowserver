@@ -19,12 +19,12 @@ export const getAssetDashboard = async (
             return next(new AuthenticationError());
         }
 
-        const data = await getAssetDashboardService(req.auth.organizationId);
+        const data = await getAssetDashboardService(
+            req.auth.organizationId,
+            req.auth.scopedBranchId  // undefined for org-wide roles, set for Branch Manager
+        );
 
-        return res.status(200).json({
-            success: true,
-            data,
-        });
+        return res.status(200).json({ success: true, data });
     } catch (error) {
         return next(error);
     }
@@ -42,12 +42,10 @@ export const getFinanceDashboard = async (
             return next(new AuthenticationError());
         }
 
+        // Finance dashboard is always org-wide — no branch scoping
         const data = await getFinanceDashboardService(req.auth.organizationId);
 
-        return res.status(200).json({
-            success: true,
-            data,
-        });
+        return res.status(200).json({ success: true, data });
     } catch (error) {
         return next(error);
     }
@@ -65,12 +63,12 @@ export const getMaintenanceDashboard = async (
             return next(new AuthenticationError());
         }
 
-        const data = await getMaintenanceDashboardService(req.auth.organizationId);
+        const data = await getMaintenanceDashboardService(
+            req.auth.organizationId,
+            req.auth.scopedBranchId  // Branch Manager sees own branch only
+        );
 
-        return res.status(200).json({
-            success: true,
-            data,
-        });
+        return res.status(200).json({ success: true, data });
     } catch (error) {
         return next(error);
     }
@@ -88,12 +86,12 @@ export const getAuditDashboard = async (
             return next(new AuthenticationError());
         }
 
-        const data = await getAuditDashboardService(req.auth.organizationId);
+        const data = await getAuditDashboardService(
+            req.auth.organizationId,
+            req.auth.scopedBranchId  // Branch Manager sees own branch only
+        );
 
-        return res.status(200).json({
-            success: true,
-            data,
-        });
+        return res.status(200).json({ success: true, data });
     } catch (error) {
         return next(error);
     }

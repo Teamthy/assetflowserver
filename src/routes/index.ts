@@ -6,6 +6,7 @@ import { maintenanceRouter } from "./maintenance.routes"; // ← was ./maintenan
 import { notificationsRouter } from "./notifications";
 import { auditRouter } from "./audit";
 
+import { reportsRouter } from "./reports";
 export const apiRouter = Router();
 
 apiRouter.get("/health", (_req, res) => {
@@ -18,3 +19,4 @@ apiRouter.use("/branches", branchesRouter);
 apiRouter.use("/notifications", notificationsRouter);
 apiRouter.use("/maintenance", maintenanceRouter);
 apiRouter.use("/audit", auditRouter);
+apiRouter.use("/reports", reportsRouter);  

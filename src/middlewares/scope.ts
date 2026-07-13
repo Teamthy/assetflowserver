@@ -1,30 +1,3 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// ASSETFLOW SCOPE MIDDLEWARE
-// Version: 1.1 — Corrected for actual schema
-//
-// Schema corrections applied:
-//   - organizationMemberships → organizationUsers (actual table name)
-//   - branchId does not exist on organizationUsers
-//     Branch Manager scope is resolved differently:
-//     We look at assets the Branch Manager manages, not a membership field.
-//     The actor's branch is passed in the JWT or resolved from their asset ownership.
-//
-// Branch Manager scope strategy (revised):
-//   Since there is no branchId on organizationUsers, we enforce branch scope
-//   by reading branchId from the REQUEST BODY or QUERY on write/list routes,
-//   and by reading the target resource's branchId on resource-specific routes.
-//   Branch Managers must supply their branchId — the controller validates it
-//   matches what they are authorised for.
-//
-//   For a proper branch-locked experience, branchId should be added to:
-//     - organizationUsers table (recommended — one migration)
-//     - OR the JWT payload at login time
-//
-// isPrimaryAdmin strategy (revised):
-//   organizations.ownerUserId is the Primary Admin identifier.
-//   We use that instead of a membership flag.
-// ─────────────────────────────────────────────────────────────────────────────
-
 import { NextFunction, Request, Response } from "express";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../db";
@@ -68,7 +41,7 @@ async function resolveTargetBranchId(
     resourceType: ScopeResourceType,
     organizationId: string
 ): Promise<string | null> {
-    const resourceId = req.params.id;
+    const resourceId = req.params.id as string; // ← cast fixes TS2769
 
     if (!resourceId) return null;
 
@@ -88,8 +61,7 @@ async function resolveTargetBranchId(
         }
 
         case "branch": {
-            // The resource ID is the branch ID itself
-            return resourceId;
+            return resourceId; // ← now string, not string | string[]
         }
 
         case "maintenance": {
@@ -113,23 +85,6 @@ async function resolveTargetBranchId(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MIDDLEWARE 1 — requireBranchScope
-//
-// REVISED STRATEGY (no branchId on organizationUsers):
-//
-// Branch Managers must include their branchId in the JWT payload.
-// At login, the auth service should embed branchId into the token
-// if the user has the branch_manager role.
-//
-// Until that is implemented, Branch Managers pass their branchId
-// in req.auth.branchId (from JWT). We compare that against the
-// target resource's branchId.
-//
-// If req.auth.branchId is not present and the user is a Branch Manager,
-// we block the request — they must have a branch assigned.
-//
-// SCHEMA MIGRATION RECOMMENDED:
-//   ALTER TABLE organization_users ADD COLUMN branch_id UUID REFERENCES branches(id);
-//   Add branchId to JWT payload at login for branch_manager role.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const requireBranchScope = (resourceType: ScopeResourceType) => {
@@ -145,12 +100,10 @@ export const requireBranchScope = (resourceType: ScopeResourceType) => {
                 BRANCH_SCOPED_ROLES.has(r)
             );
 
-            // Non-branch-scoped roles pass through freely
             if (!isBranchScoped) {
                 return next();
             }
 
-            // Branch Manager must have branchId in their JWT
             const actorBranchId = req.auth.branchId;
 
             if (!actorBranchId) {
@@ -161,14 +114,13 @@ export const requireBranchScope = (resourceType: ScopeResourceType) => {
                 );
             }
 
-            // For list/create routes — inject scope, no target resource yet
-            const resourceId = req.params.id;
+            const resourceId = req.params.id as string; // ← cast
+
             if (!resourceId) {
                 req.auth.scopedBranchId = actorBranchId;
                 return next();
             }
 
-            // For resource-specific routes — verify target is in actor's branch
             const targetBranchId = await resolveTargetBranchId(
                 req,
                 resourceType,
@@ -176,7 +128,6 @@ export const requireBranchScope = (resourceType: ScopeResourceType) => {
             );
 
             if (targetBranchId === null) {
-                // Resource not found — let controller handle 404
                 return next();
             }
 
@@ -221,9 +172,8 @@ export const requireOwnAsset = async (
             return next();
         }
 
-        const resourceId = req.params.id;
+        const resourceId = req.params.id as string; // ← cast
 
-        // List routes — inject filter for controller
         if (!resourceId) {
             req.auth.scopedUserId = req.auth.userId;
             return next();
@@ -232,7 +182,7 @@ export const requireOwnAsset = async (
         const { userId, organizationId } = req.auth;
 
         const rows = await db
-            .select({ assignedTo: assets.assignedTo })   // ✅ correct field name
+            .select({ assignedTo: assets.assignedTo })
             .from(assets)
             .where(
                 and(
@@ -248,7 +198,7 @@ export const requireOwnAsset = async (
             );
         }
 
-        if (rows[0].assignedTo !== userId) {             // ✅ correct field name
+        if (rows[0].assignedTo !== userId) {
             return next(
                 new AuthorizationError(
                     "You can only access assets assigned to you"
@@ -287,7 +237,7 @@ export const requireOwnTask = async (
             return next();
         }
 
-        const resourceId = req.params.id;
+        const resourceId = req.params.id as string; // ← cast
 
         if (!resourceId) {
             req.auth.scopedUserId = req.auth.userId;
@@ -297,17 +247,16 @@ export const requireOwnTask = async (
         const { userId, organizationId } = req.auth;
 
         const rows = await db
-            .select({ assignedTo: maintenanceTasks.assignedTo })  // ✅ correct field name
+            .select({ assignedTo: maintenanceTasks.assignedTo })
             .from(maintenanceTasks)
             .where(
                 and(
                     eq(maintenanceTasks.id, resourceId),
                     eq(maintenanceTasks.organizationId, organizationId),
-                    isNull(maintenanceTasks.deletedAt)              // ✅ added deletedAt check
+                    isNull(maintenanceTasks.deletedAt)
                 )
             );
 
-        // Task not found — return 403, do not leak existence
         if (rows.length === 0) {
             return next(
                 new AuthorizationError(
@@ -316,7 +265,7 @@ export const requireOwnTask = async (
             );
         }
 
-        if (rows[0].assignedTo !== userId) {                       // ✅ correct field name
+        if (rows[0].assignedTo !== userId) {
             return next(
                 new AuthorizationError(
                     "You can only access maintenance tasks assigned to you"
@@ -330,6 +279,7 @@ export const requireOwnTask = async (
         return next(error);
     }
 };
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MIDDLEWARE 4 — requireNotReadOnly
 // ─────────────────────────────────────────────────────────────────────────────
@@ -365,9 +315,6 @@ export const requireNotReadOnly = async (
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MIDDLEWARE 5 — requirePrimaryAdmin
-//
-// REVISED: Uses organizations.ownerUserId instead of a membership flag
-// since isPrimaryAdmin does not exist on organizationUsers.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const requirePrimaryAdmin = async (

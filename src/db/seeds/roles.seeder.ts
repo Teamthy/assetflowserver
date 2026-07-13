@@ -169,6 +169,7 @@ export async function seedRolesForNewOrganization(
 
 function buildPermissionDescription(key: PermissionKey): string {
     const descriptions: Record<PermissionKey, string> = {
+        // Asset
         "asset:create": "Create new assets",
         "asset:read": "View assets",
         "asset:update": "Update existing assets",
@@ -176,33 +177,63 @@ function buildPermissionDescription(key: PermissionKey): string {
         "asset:restore": "Restore deleted or disposed assets",
         "asset:transfer": "Transfer assets between branches or users",
         "asset:dispose": "Dispose of assets",
+        "asset:dispose:approve": "Approve disposal requests above the threshold",
         "asset:import": "Import assets from spreadsheet",
         "asset:export": "Export assets to spreadsheet",
         "asset:audit": "View asset audit summaries",
+        // Depreciation
         "depreciation:record": "Record depreciation snapshots",
+        "depreciation:edit": "Edit an existing depreciation snapshot",
+        "depreciation:delete": "Delete a depreciation record",
+        "depreciation:run_bulk": "Run bulk depreciation across all eligible assets",
+        // Branch
         "branch:create": "Create branches",
         "branch:read": "View branches",
         "branch:update": "Update branches",
         "branch:delete": "Delete branches",
+        "branch:force_delete": "Force delete a branch that has active assets",
+        // Maintenance
         "maintenance:create": "Create maintenance tasks",
         "maintenance:read": "View maintenance tasks",
         "maintenance:update": "Update maintenance tasks",
         "maintenance:complete": "Complete maintenance tasks",
+        // Notifications
         "notification:read": "View notifications",
         "notification:manage": "Manage all notifications",
+        "notification:announce": "Send a system-wide announcement to all users",
+        // Organization
         "org:settings:read": "View organization settings",
         "org:settings:update": "Update organization settings",
+        "org:ownership:transfer": "Transfer organization ownership to another user",
+        "org:delete": "Permanently delete the organization",
+        // Users
         "user:invite": "Invite users to the organization",
         "user:read": "View organization users",
         "user:update": "Update user profiles",
         "user:suspend": "Suspend or reactivate users",
+        "user:remove": "Remove a user from the organization",
+        // Roles
         "role:assign": "Assign roles to users",
         "role:read": "View roles and permissions",
+        // Audit
         "audit:campaign:create": "Create audit campaigns",
         "audit:campaign:read": "View audit campaigns",
         "audit:campaign:update": "Update audit campaigns",
         "audit:campaign:delete": "Delete audit campaigns",
         "audit:verification:update": "Update asset verifications during audit",
+        // Reporting
+        "report:view": "Access reporting dashboards and analytics",
+        // Documents
+        "document:upload": "Upload documents and evidence to records",
+        "document:delete": "Delete uploaded documents",
+        // Insurance
+        "insurance:read": "View insurance records for assets",
+        "insurance:write": "Add or edit insurance records",
+        "insurance:delete": "Delete insurance records",
+        // Revaluation
+        "revaluation:read": "View revaluation records",
+        "revaluation:write": "Create or edit revaluation records",
+        "revaluation:delete": "Delete revaluation records",
     };
 
     return descriptions[key] ?? key;

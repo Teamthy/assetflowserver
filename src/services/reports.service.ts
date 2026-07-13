@@ -18,8 +18,11 @@ import { logger } from "../utils/logger";
 
 // ─── Asset Dashboard ──────────────────────────────────────────────────────────
 
-export async function getAssetDashboardService(organizationId: string) {
-    logger.info("[Reports] Fetching asset dashboard", { organizationId });
+export async function getAssetDashboardService(
+    organizationId: string,
+    branchId?: string  // undefined = org-wide, set = branch-scoped
+) {
+    logger.info("[Reports] Fetching asset dashboard", { organizationId, branchId });
 
     const [
         byStatus,
@@ -28,14 +31,13 @@ export async function getAssetDashboardService(organizationId: string) {
         byBranch,
         totalValue,
     ] = await Promise.all([
-        getAssetCountByStatus(organizationId),
-        getAssetCountByCondition(organizationId),
-        getAssetCountByCategory(organizationId),
-        getAssetCountByBranch(organizationId),
-        getTotalAssetValue(organizationId),
+        getAssetCountByStatus(organizationId, branchId),
+        getAssetCountByCondition(organizationId, branchId),
+        getAssetCountByCategory(organizationId, branchId),
+        getAssetCountByBranch(organizationId, branchId),
+        getTotalAssetValue(organizationId, branchId),
     ]);
 
-    // Build status summary with zeros for missing statuses
     const statusMap = Object.fromEntries(
         byStatus.map((r) => [r.status, Number(r.count)])
     );
@@ -65,6 +67,7 @@ export async function getAssetDashboardService(organizationId: string) {
             branchName: r.branchName ?? "Unassigned",
             count: Number(r.count),
         })),
+        scopedToBranch: branchId ?? null,
     };
 }
 
@@ -85,7 +88,6 @@ export async function getFinanceDashboardService(organizationId: string) {
         getTotalAccumulatedDepreciation(organizationId),
     ]);
 
-    // Build treatment map
     const treatmentMap = Object.fromEntries(
         byTreatment.map((r) => [
             r.accountingTreatment,
@@ -97,10 +99,8 @@ export async function getFinanceDashboardService(organizationId: string) {
         accountingTreatment: {
             capitalized: treatmentMap["capitalized"] ?? { count: 0, totalValue: "0" },
             expensed: treatmentMap["expensed"] ?? { count: 0, totalValue: "0" },
-            trackedNonCapitalized:
-                treatmentMap["tracked_non_capitalized"] ?? { count: 0, totalValue: "0" },
-            pendingReview:
-                treatmentMap["pending_review"] ?? { count: 0, totalValue: "0" },
+            trackedNonCapitalized: treatmentMap["tracked_non_capitalized"] ?? { count: 0, totalValue: "0" },
+            pendingReview: treatmentMap["pending_review"] ?? { count: 0, totalValue: "0" },
         },
         depreciation: {
             ...depreciationCoverage,
@@ -121,8 +121,11 @@ export async function getFinanceDashboardService(organizationId: string) {
 
 // ─── Maintenance Dashboard ────────────────────────────────────────────────────
 
-export async function getMaintenanceDashboardService(organizationId: string) {
-    logger.info("[Reports] Fetching maintenance dashboard", { organizationId });
+export async function getMaintenanceDashboardService(
+    organizationId: string,
+    branchId?: string
+) {
+    logger.info("[Reports] Fetching maintenance dashboard", { organizationId, branchId });
 
     const [
         byStatus,
@@ -130,10 +133,10 @@ export async function getMaintenanceDashboardService(organizationId: string) {
         overdueCount,
         upcomingCount,
     ] = await Promise.all([
-        getMaintenanceCountByStatus(organizationId),
-        getMaintenanceCountByPriority(organizationId),
-        getOverdueMaintenanceCount(organizationId),
-        getUpcomingMaintenanceCount(organizationId, 7),
+        getMaintenanceCountByStatus(organizationId, branchId),
+        getMaintenanceCountByPriority(organizationId, branchId),
+        getOverdueMaintenanceCount(organizationId, branchId),
+        getUpcomingMaintenanceCount(organizationId, 7, branchId),
     ]);
 
     const statusMap = Object.fromEntries(
@@ -158,16 +161,20 @@ export async function getMaintenanceDashboardService(organizationId: string) {
             priority: r.priority,
             count: Number(r.count),
         })),
+        scopedToBranch: branchId ?? null,
     };
 }
 
 // ─── Audit Dashboard ──────────────────────────────────────────────────────────
 
-export async function getAuditDashboardService(organizationId: string) {
-    logger.info("[Reports] Fetching audit dashboard", { organizationId });
+export async function getAuditDashboardService(
+    organizationId: string,
+    branchId?: string
+) {
+    logger.info("[Reports] Fetching audit dashboard", { organizationId, branchId });
 
     const [fieldCompleteness, byTreatment] = await Promise.all([
-        getAssetFieldCompleteness(organizationId),
+        getAssetFieldCompleteness(organizationId, branchId),
         getAssetCountByAccountingTreatment(organizationId),
     ]);
 
@@ -184,5 +191,6 @@ export async function getAuditDashboardService(organizationId: string) {
             hasMissingCategories: fieldCompleteness.missingCategory > 0,
             hasMissingBranches: fieldCompleteness.missingBranch > 0,
         },
+        scopedToBranch: branchId ?? null,
     };
 }

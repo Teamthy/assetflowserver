@@ -1,28 +1,4 @@
 
-it("debug — print what JWT_SECRET the app sees", async () => {
-    const res = await request(app)
-        .get("/api/health")
-        .set("Authorization", "Bearer INVALID_TOKEN_ON_PURPOSE");
-
-    console.log("Health status:", res.status);
-    console.log("Health body:", res.body);
-
-    // Now generate a token and print it
-    const token = adminToken();
-    console.log("Generated token:", token);
-
-    // Decode without verification to see what secret was used
-    const parts = token.split(".");
-    const payload = JSON.parse(Buffer.from(parts[1], "base64").toString());
-    console.log("Token payload:", payload);
-
-    const res2 = await request(app)
-        .get("/api/assets")
-        .set("Authorization", `Bearer ${token}`);
-
-    console.log("Assets response status:", res2.status);
-    console.log("Assets response body:", JSON.stringify(res2.body));
-});
 import request from "supertest";
 import { createTestApp } from "./helpers/test-app";
 import { seedTestData, cleanTestData } from "./helpers/test-seed";
@@ -44,12 +20,11 @@ const app = createTestApp();
 beforeAll(async () => {
     await cleanTestData();
     await seedTestData();
-});
+}, 30000); // ← 30 second timeout
 
 afterAll(async () => {
     await cleanTestData();
-});
-
+}, 30000); // ← 30 second timeout
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 1 — AUTHENTICATION BASELINE
 // Every protected route returns 401 when no token is provided
