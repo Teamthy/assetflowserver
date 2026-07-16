@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { and, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull } from "drizzle-orm";
 import { db } from "../db";
 import { env } from "../config/env";
 import { AuthenticationError } from "../utils/error";
@@ -13,6 +13,7 @@ import {
   rolePermissions,
   roles,
   userRoles,
+  userSessionState,
   users,
 } from "../model";
 
@@ -33,6 +34,59 @@ export const generateOtp = () => String(crypto.randomInt(100000, 1000000));
 export const findUserByEmail = async (email: string) => {
   const [record] = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);
   return record;
+};
+
+export const createUser = async (input: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  passwordHash: string;
+  isActive?: boolean;
+}) => {
+  const [record] = await db
+    .insert(users)
+    .values({
+      firstName: input.firstName,
+      lastName: input.lastName,
+      email: input.email.toLowerCase(),
+      passwordHash: input.passwordHash,
+      isActive: input.isActive ?? false,
+    })
+    .returning();
+
+  return record;
+};
+
+export const updateUserById = async (userId: string, payload: Record<string, unknown>) => {
+  const [record] = await db
+    .update(users)
+    .set({ ...payload, updatedAt: new Date() })
+    .where(eq(users.id, userId))
+    .returning();
+
+  return record;
+};
+
+export const findUserById = async (userId: string) => {
+  const [record] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  return record;
+};
+
+export const listActiveOrganizationMembershipsForUser = async (userId: string) => {
+  return db
+    .select({
+      organizationId: organizationUsers.organizationId,
+      organizationName: organizations.name,
+      organizationSlug: organizations.slug,
+    })
+    .from(organizationUsers)
+    .innerJoin(organizations, eq(organizations.id, organizationUsers.organizationId))
+    .where(and(eq(organizationUsers.userId, userId), eq(organizationUsers.status, "active")))
+    .orderBy(asc(organizationUsers.joinedAt), asc(organizationUsers.createdAt));
+};
+
+export const updateUserPassword = async (userId: string, passwordHash: string) => {
+  await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
 };
 
 export const findOrganizationBySlug = async (slug: string) => {
@@ -146,6 +200,49 @@ export const rotateRefreshToken = async (input: {
   });
 };
 
+export const saveUserSessionState = async (input: {
+  userId: string;
+  organizationId: string;
+  state: Record<string, unknown>;
+}) => {
+  const existing = await db
+    .select()
+    .from(userSessionState)
+    .where(and(eq(userSessionState.userId, input.userId), eq(userSessionState.organizationId, input.organizationId)))
+    .limit(1);
+
+  if (existing[0]) {
+    const [record] = await db
+      .update(userSessionState)
+      .set({ state: input.state, updatedAt: new Date() })
+      .where(and(eq(userSessionState.userId, input.userId), eq(userSessionState.organizationId, input.organizationId)))
+      .returning();
+
+    return record;
+  }
+
+  const [record] = await db
+    .insert(userSessionState)
+    .values({
+      userId: input.userId,
+      organizationId: input.organizationId,
+      state: input.state,
+    })
+    .returning();
+
+  return record;
+};
+
+export const getUserSessionState = async (userId: string, organizationId: string) => {
+  const [record] = await db
+    .select()
+    .from(userSessionState)
+    .where(and(eq(userSessionState.userId, userId), eq(userSessionState.organizationId, organizationId)))
+    .limit(1);
+
+  return record ?? null;
+};
+
 export const createPasswordResetToken = async (userId: string, rawToken: string, expiresAt: Date) => {
   await db.insert(passwordResetTokens).values({
     userId,
@@ -154,22 +251,12 @@ export const createPasswordResetToken = async (userId: string, rawToken: string,
   });
 };
 
-export const findValidPasswordResetTokenForUser = async (
-  userId: string,
-  rawToken: string,
-) => {
+export const findValidPasswordResetToken = async (rawToken: string) => {
   const tokenHash = hashToken(rawToken);
   const [record] = await db
     .select()
     .from(passwordResetTokens)
-    .where(
-      and(
-        eq(passwordResetTokens.userId, userId),
-        eq(passwordResetTokens.tokenHash, tokenHash),
-        isNull(passwordResetTokens.usedAt),
-        gt(passwordResetTokens.expiresAt, new Date()),
-      ),
-    )
+    .where(and(eq(passwordResetTokens.tokenHash, tokenHash), isNull(passwordResetTokens.usedAt), gt(passwordResetTokens.expiresAt, new Date())))
     .limit(1);
   return record;
 };

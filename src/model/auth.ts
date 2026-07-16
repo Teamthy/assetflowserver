@@ -1,4 +1,4 @@
-import { boolean, index, pgTable, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, jsonb, pgTable, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 import { organizations, users } from "./user";
 
 export const refreshTokens = pgTable(
@@ -20,6 +20,25 @@ export const refreshTokens = pgTable(
   (table) => ({
     refreshTokenHashUq: uniqueIndex("refresh_token_hash_uq").on(table.tokenHash),
     refreshTokenUserRevokedIdx: index("refresh_token_user_revoked_idx").on(table.userId, table.isRevoked),
+  })
+);
+
+export const userSessionState = pgTable(
+  "user_session_state",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    state: jsonb("state").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    userSessionStateUserOrgUq: uniqueIndex("user_session_state_user_org_uq").on(table.userId, table.organizationId),
   })
 );
 

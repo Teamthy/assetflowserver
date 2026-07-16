@@ -4,7 +4,7 @@ const registerBaseSchema = z.object({
   firstName: z.string().min(2),
   lastName: z.string().min(2),
   email: z.email(),
-  password: z.string().min(12),
+  password: z.string().min(8),
 });
 
 export const registerSchema = z.discriminatedUnion("accountType", [
@@ -12,23 +12,27 @@ export const registerSchema = z.discriminatedUnion("accountType", [
     accountType: z.literal("personal"),
     organizationName: z.string().min(2).max(180).optional(),
     organizationSlug: z.string().min(2).max(180).optional(),
+    rememberMe: z.boolean().optional(),
   }),
   registerBaseSchema.extend({
     accountType: z.literal("organization"),
     organizationName: z.string().min(2).max(180),
     organizationSlug: z.string().min(2).max(180).optional(),
+    rememberMe: z.boolean().optional(),
   }),
 ]);
 
 export const loginSchema = z.object({
   email: z.email(),
   password: z.string().min(1),
+  rememberMe: z.boolean().optional(),
 });
 
 export const organizationLoginSchema = z.object({
   organizationSlug: z.string().min(2),
   email: z.email(),
   password: z.string().min(1),
+  rememberMe: z.boolean().optional(),
 });
 
 export const verifyPasswordSchema = z.object({
@@ -38,7 +42,7 @@ export const verifyPasswordSchema = z.object({
 export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1),
-    newPassword: z.string().min(12),
+    newPassword: z.string().min(8),
   })
   .refine((value) => value.currentPassword !== value.newPassword, {
     message: "New password must be different from current password",
@@ -50,9 +54,8 @@ export const requestResetPasswordSchema = z.object({
 });
 
 export const resetPasswordSchema = z.object({
-  email: z.email(),
-  token: z.string().regex(/^\d{6}$/),
-  newPassword: z.string().min(12),
+  token: z.string().length(6),
+  newPassword: z.string().min(8),
 });
 
 export const refreshTokenSchema = z.object({

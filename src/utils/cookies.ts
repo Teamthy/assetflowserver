@@ -19,13 +19,17 @@ const parseDurationMs = (value: string): number => {
 
 export const REFRESH_COOKIE_NAME = "refreshToken";
 
-export const setRefreshTokenCookie = (res: Response, token: string) => {
+export const setRefreshTokenCookie = (
+  res: Response,
+  token: string,
+  expiresIn: string | number = env.JWT_REFRESH_EXPIRES_IN,
+) => {
   res.cookie(REFRESH_COOKIE_NAME, token, {
     httpOnly: true,
     secure: env.COOKIE_SECURE ?? env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/api/auth",
-    maxAge: parseDurationMs(env.JWT_REFRESH_EXPIRES_IN),
+    sameSite: env.COOKIE_SAME_SITE,
+    path: env.COOKIE_PATH,
+    maxAge: typeof expiresIn === "number" ? expiresIn : parseDurationMs(expiresIn),
     ...(env.COOKIE_DOMAIN ? { domain: env.COOKIE_DOMAIN } : {}),
   });
 };
@@ -34,8 +38,8 @@ export const clearRefreshTokenCookie = (res: Response) => {
   res.clearCookie(REFRESH_COOKIE_NAME, {
     httpOnly: true,
     secure: env.COOKIE_SECURE ?? env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/api/auth",
+    sameSite: env.COOKIE_SAME_SITE,
+    path: env.COOKIE_PATH,
     ...(env.COOKIE_DOMAIN ? { domain: env.COOKIE_DOMAIN } : {}),
   });
 };

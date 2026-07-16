@@ -9,11 +9,6 @@ const loginRateLimit = createRateLimit({
   max: 20,
   keyPrefix: "auth-login",
 });
-const registerRateLimit = createRateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 10,
-  keyPrefix: "auth-register",
-});
 const resetRateLimit = createRateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -25,7 +20,7 @@ const refreshRateLimit = createRateLimit({
   keyPrefix: "auth-refresh",
 });
 
-authRouter.post("/register", registerRateLimit, authController.register);
+authRouter.post("/register", authController.register);
 authRouter.post("/login", loginRateLimit, authController.login);
 authRouter.post(
   "/organization-login",
@@ -63,6 +58,8 @@ authRouter.post(
   refreshRateLimit,
   authController.refreshToken,
 );
+authRouter.get("/session", requireAuth, authController.getSessionState);
+authRouter.put("/session", requireAuth, authController.saveSessionState);
 authRouter.post("/logout", requireAuth, authController.logout);
 authRouter.post("/logout-all", requireAuth, authController.logoutAll);
 authRouter.post("/change-password", requireAuth, authController.changePassword);

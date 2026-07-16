@@ -1,5 +1,4 @@
 import { NextFunction, Request, Response } from "express";
-import { z } from "zod";
 import {
   changePasswordSchema,
   loginSchema,
@@ -12,27 +11,26 @@ import {
   verifyPasswordSchema,
 } from "../validators/auth";
 import * as authService from "../services/auth";
-import { AuthenticationError, ValidationError } from "../utils/error";
+import { AuthenticationError } from "../utils/error";
 import {
   clearRefreshTokenCookie,
   getRefreshTokenFromRequest,
   setRefreshTokenCookie,
 } from "../utils/cookies";
-
-const parseBody = <T>(schema: z.ZodType<T>, body: unknown): T => {
-  const result = schema.safeParse(body);
-  if (!result.success) {
-    throw new ValidationError("Validation failed", result.error.issues);
-  }
-  return result.data;
-};
+import { env } from "../config/env";
+import { z } from "zod";
+import { parseRequestData } from "../utils/controller";
 
 export const register = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const payload = parseBody(registerSchema, req.body);
+    const payload = parseRequestData(registerSchema, req.body);
     const data = await authService.register(payload);
-    setRefreshTokenCookie(res, data.refreshToken);
-    const { refreshToken: _refreshToken, ...safeData } = data;
+    setRefreshTokenCookie(
+      res,
+      data.refreshToken,
+      payload.rememberMe ? env.JWT_REFRESH_LONG_EXPIRES_IN : undefined,
+    );
+    const { refreshToken: _refreshToken, refreshTokenMaxAgeMs: _maxAge, ...safeData } = data;
     res.status(201).json({ success: true, data: safeData });
   } catch (error) {
     next(error);
@@ -41,10 +39,14 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 
 export const login = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const payload = parseBody(loginSchema, req.body);
+    const payload = parseRequestData(loginSchema, req.body);
     const data = await authService.login(payload);
-    setRefreshTokenCookie(res, data.refreshToken);
-    const { refreshToken: _refreshToken, ...safeData } = data;
+    setRefreshTokenCookie(
+      res,
+      data.refreshToken,
+      payload.rememberMe ? env.JWT_REFRESH_LONG_EXPIRES_IN : undefined,
+    );
+    const { refreshToken: _refreshToken, refreshTokenMaxAgeMs: _maxAge, ...safeData } = data;
     res.status(200).json({ success: true, data: safeData });
   } catch (error) {
     next(error);
@@ -53,10 +55,14 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
 
 export const organizationLogin = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const payload = parseBody(organizationLoginSchema, req.body);
+    const payload = parseRequestData(organizationLoginSchema, req.body);
     const data = await authService.organizationLogin(payload);
-    setRefreshTokenCookie(res, data.refreshToken);
-    const { refreshToken: _refreshToken, ...safeData } = data;
+    setRefreshTokenCookie(
+      res,
+      data.refreshToken,
+      payload.rememberMe ? env.JWT_REFRESH_LONG_EXPIRES_IN : undefined,
+    );
+    const { refreshToken: _refreshToken, refreshTokenMaxAgeMs: _maxAge, ...safeData } = data;
     res.status(200).json({ success: true, data: safeData });
   } catch (error) {
     next(error);
@@ -68,7 +74,7 @@ export const verifyPassword = async (req: Request, res: Response, next: NextFunc
     if (!req.auth?.userId) {
       throw new AuthenticationError();
     }
-    const payload = parseBody(verifyPasswordSchema, req.body);
+    const payload = parseRequestData(verifyPasswordSchema, req.body);
     const data = await authService.verifyPassword({ userId: req.auth.userId, ...payload });
     res.status(200).json({ success: true, data });
   } catch (error) {
@@ -78,7 +84,7 @@ export const verifyPassword = async (req: Request, res: Response, next: NextFunc
 
 export const requestResetPassword = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const payload = parseBody(requestResetPasswordSchema, req.body);
+    const payload = parseRequestData(requestResetPasswordSchema, req.body);
     await authService.requestPasswordReset(payload);
     res.status(200).json({
       success: true,
@@ -91,7 +97,7 @@ export const requestResetPassword = async (req: Request, res: Response, next: Ne
 
 export const resetPassword = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const payload = parseBody(resetPasswordSchema, req.body);
+    const payload = parseRequestData(resetPasswordSchema, req.body);
     const data = await authService.resetPassword(payload);
     res.status(200).json({ success: true, data });
   } catch (error) {
@@ -104,7 +110,7 @@ export const changePassword = async (req: Request, res: Response, next: NextFunc
     if (!req.auth?.userId) {
       throw new AuthenticationError();
     }
-    const payload = parseBody(changePasswordSchema, req.body);
+    const payload = parseRequestData(changePasswordSchema, req.body);
     const data = await authService.changePassword({
       userId: req.auth.userId,
       ...payload,
@@ -118,15 +124,15 @@ export const changePassword = async (req: Request, res: Response, next: NextFunc
 
 export const refreshToken = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const bodyToken = parseBody(refreshTokenSchema, req.body ?? {}).refreshToken;
+    const bodyToken = parseRequestData(refreshTokenSchema, req.body ?? {}).refreshToken;
     const cookieToken = getRefreshTokenFromRequest(req);
     const refreshToken = cookieToken ?? bodyToken;
     if (!refreshToken) {
       throw new AuthenticationError("Missing refresh token");
     }
     const data = await authService.refreshAuthToken({ refreshToken });
-    setRefreshTokenCookie(res, data.refreshToken);
-    const { refreshToken: _refreshToken, ...safeData } = data;
+    setRefreshTokenCookie(res, data.refreshToken, data.refreshTokenMaxAgeMs ?? env.JWT_REFRESH_EXPIRES_IN);
+    const { refreshToken: _refreshToken, refreshTokenMaxAgeMs: _maxAge, ...safeData } = data;
     res.status(200).json({ success: true, data: safeData });
   } catch (error) {
     next(error);
@@ -138,7 +144,7 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
     if (!req.auth?.userId || !req.auth.organizationId) {
       throw new AuthenticationError();
     }
-    const payload = parseBody(logoutSchema, req.body ?? {});
+    const payload = parseRequestData(logoutSchema, req.body ?? {});
     const refreshToken = getRefreshTokenFromRequest(req) ?? payload.refreshToken;
     const data = await authService.logout({
       userId: req.auth.userId,
@@ -162,6 +168,46 @@ export const logoutAll = async (req: Request, res: Response, next: NextFunction)
       organizationId: req.auth.organizationId,
     });
     clearRefreshTokenCookie(res);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const sessionStateSchema = z.object({
+  state: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const saveSessionState = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.auth?.userId || !req.auth.organizationId) {
+      throw new AuthenticationError();
+    }
+
+    const payload = sessionStateSchema.parse(req.body ?? {});
+    const data = await authService.saveSessionState({
+      userId: req.auth.userId,
+      organizationId: req.auth.organizationId,
+      state: payload.state,
+    });
+
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getSessionState = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.auth?.userId || !req.auth.organizationId) {
+      throw new AuthenticationError();
+    }
+
+    const data = await authService.getSessionState({
+      userId: req.auth.userId,
+      organizationId: req.auth.organizationId,
+    });
+
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
