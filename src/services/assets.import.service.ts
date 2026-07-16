@@ -1,5 +1,8 @@
 import ExcelJS from "exceljs";
+import { and, eq, isNull } from "drizzle-orm";
 import { env } from "../config/env";
+import { db } from "../db";
+import { branches, organizationUsers } from "../model";
 import { bulkCreateAssetsAtomic } from "../repositories/assets";
 import { findOrganizationById } from "../repositories/organizations";
 import { ValidationError } from "../utils/error";
@@ -99,6 +102,48 @@ const readCellIsoDate = (value: ExcelJS.CellValue): string | undefined => {
     }
   }
   return undefined;
+};
+
+const branchBelongsToOrganization = async (
+  organizationId: string,
+  branchId?: string,
+) => {
+  if (!branchId) return true;
+
+  const [branch] = await db
+    .select({ id: branches.id })
+    .from(branches)
+    .where(
+      and(
+        eq(branches.organizationId, organizationId),
+        eq(branches.id, branchId),
+        isNull(branches.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  return Boolean(branch);
+};
+
+const userIsActiveOrganizationMember = async (
+  organizationId: string,
+  userId?: string,
+) => {
+  if (!userId) return true;
+
+  const [membership] = await db
+    .select({ userId: organizationUsers.userId })
+    .from(organizationUsers)
+    .where(
+      and(
+        eq(organizationUsers.organizationId, organizationId),
+        eq(organizationUsers.userId, userId),
+        eq(organizationUsers.status, "active"),
+      ),
+    )
+    .limit(1);
+
+  return Boolean(membership);
 };
 
 export const importAssetsFromExcel = async (
@@ -204,6 +249,22 @@ const importAssetsFromWorkbook = async (
         row: row.number,
         message:
           "branchId is required when multi-branch mode is enabled for this organization",
+      });
+      continue;
+    }
+
+    if (!(await branchBelongsToOrganization(organizationId, parsed.data.branchId))) {
+      addFailure(result, {
+        row: row.number,
+        message: "branchId must belong to this organization",
+      });
+      continue;
+    }
+
+    if (!(await userIsActiveOrganizationMember(organizationId, parsed.data.assignedTo))) {
+      addFailure(result, {
+        row: row.number,
+        message: "assignedTo must be an active member of this organization",
       });
       continue;
     }

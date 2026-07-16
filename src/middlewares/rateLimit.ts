@@ -20,9 +20,29 @@ const sweepExpiredBuckets = (now: number) => {
   }
 };
 
+const getBodyIdentifier = (body: unknown) => {
+  if (!body || typeof body !== "object") return "anonymous";
+
+  const input = body as Record<string, unknown>;
+  const email = input.email;
+  if (typeof email === "string" && email.trim().length > 0) {
+    return `email:${email.trim().toLowerCase()}`;
+  }
+
+  const organizationSlug = input.organizationSlug;
+  if (
+    typeof organizationSlug === "string" &&
+    organizationSlug.trim().length > 0
+  ) {
+    return `org:${organizationSlug.trim().toLowerCase()}`;
+  }
+
+  return "anonymous";
+};
+
 export const createRateLimit = (config: RateLimitConfig) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    const key = `${config.keyPrefix}:${req.ip ?? "unknown"}`;
+    const key = `${config.keyPrefix}:${req.ip ?? "unknown"}:${getBodyIdentifier(req.body)}`;
     const now = Date.now();
     sweepExpiredBuckets(now);
     const current = buckets.get(key);

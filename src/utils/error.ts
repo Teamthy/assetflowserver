@@ -87,6 +87,34 @@ export const isAppError = (error: any): error is AppError => {
   return error instanceof AppError;
 };
 
+const isDatabaseDriverError = (error: any): boolean => {
+  if (!error || typeof error !== "object") return false;
+
+  const message = typeof error.message === "string" ? error.message : "";
+  const cause = error.cause;
+  const causeMessage =
+    cause && typeof cause.message === "string" ? cause.message : "";
+  const causeCode = cause && typeof cause.code === "string" ? cause.code : "";
+  const code = typeof error.code === "string" ? error.code : "";
+  const connectionErrorCodes = new Set([
+    "ECONNREFUSED",
+    "ECONNRESET",
+    "ENOTFOUND",
+    "ETIMEDOUT",
+    "EAI_AGAIN",
+  ]);
+
+  return (
+    message.startsWith("Failed query:") ||
+    message.includes("Connection terminated due to connection timeout") ||
+    causeMessage.includes("Connection terminated due to connection timeout") ||
+    connectionErrorCodes.has(code) ||
+    connectionErrorCodes.has(causeCode) ||
+    causeCode.startsWith("PG") ||
+    code.startsWith("PG")
+  );
+};
+
 export const toAppError = (error: any): AppError => {
   if (isAppError(error)) return error;
 
@@ -104,6 +132,10 @@ export const toAppError = (error: any): AppError => {
 
   if (error?.name === "TokenExpiredError") {
     return new AuthenticationError("Token expired");
+  }
+
+  if (isDatabaseDriverError(error)) {
+    return new DatabaseError("Database request failed", true);
   }
 
   return new AppError(

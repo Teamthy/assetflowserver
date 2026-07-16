@@ -154,12 +154,22 @@ export const createPasswordResetToken = async (userId: string, rawToken: string,
   });
 };
 
-export const findValidPasswordResetToken = async (rawToken: string) => {
+export const findValidPasswordResetTokenForUser = async (
+  userId: string,
+  rawToken: string,
+) => {
   const tokenHash = hashToken(rawToken);
   const [record] = await db
     .select()
     .from(passwordResetTokens)
-    .where(and(eq(passwordResetTokens.tokenHash, tokenHash), isNull(passwordResetTokens.usedAt), gt(passwordResetTokens.expiresAt, new Date())))
+    .where(
+      and(
+        eq(passwordResetTokens.userId, userId),
+        eq(passwordResetTokens.tokenHash, tokenHash),
+        isNull(passwordResetTokens.usedAt),
+        gt(passwordResetTokens.expiresAt, new Date()),
+      ),
+    )
     .limit(1);
   return record;
 };

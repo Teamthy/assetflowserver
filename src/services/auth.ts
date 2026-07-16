@@ -8,7 +8,7 @@ import {
   createPasswordResetToken,
   findOrganizationBySlug,
   findUserByEmail,
-  findValidPasswordResetToken,
+  findValidPasswordResetTokenForUser,
   findValidRefreshToken,
   generateOtp,
   isUserInOrganization,
@@ -25,6 +25,7 @@ import { organizations, users } from "../model";
 import { organizationUsers } from "../model";
 import { logger } from "../utils/logger";
 import { createInAppNotification } from "./notifications";
+import { sendPasswordResetOtpEmail } from "./email";
 
 const parseDurationMs = (value: string): number => {
   const match = value.match(/^(\d+)([smhd])$/);
@@ -55,14 +56,24 @@ const signAccessToken = (payload: { userId: string; organizationId: string; emai
   if (!env.JWT_SECRET) {
     throw new Error("JWT_SECRET is not configured");
   }
-  return jwt.sign(payload, env.JWT_SECRET, { expiresIn: accessExpiresIn });
+  return jwt.sign(payload, env.JWT_SECRET, {
+    expiresIn: accessExpiresIn,
+    algorithm: "HS256",
+    issuer: env.JWT_ISSUER,
+    audience: env.JWT_AUDIENCE,
+  });
 };
 
 const signRefreshToken = (payload: { userId: string; organizationId: string }) => {
   if (!env.JWT_REFRESH_SECRET) {
     throw new Error("JWT_REFRESH_SECRET is not configured");
   }
-  return jwt.sign(payload, env.JWT_REFRESH_SECRET, { expiresIn: refreshExpiresIn });
+  return jwt.sign(payload, env.JWT_REFRESH_SECRET, {
+    expiresIn: refreshExpiresIn,
+    algorithm: "HS256",
+    issuer: env.JWT_ISSUER,
+    audience: env.JWT_AUDIENCE,
+  });
 };
 
 type RegisterInput =
@@ -303,25 +314,12 @@ export const requestPasswordReset = async (input: { email: string }) => {
 
   await createPasswordResetToken(user.id, rawToken, expiresAt);
 
-  if (env.LOG_OTP_FOR_DEBUG === true && env.NODE_ENV !== "production") {
-    logger.warn("Password reset OTP generated (debug mode)", {
-      email: user.email,
-      otp: rawToken,
-      expiresAt: expiresAt.toISOString(),
-    });
-  }
-
-  // Temporarily disabled while email domain/provider setup is being finalized.
-  // await sendPasswordResetOtpEmail({
-  //   to: user.email,
-  //   userName: `${user.firstName} ${user.lastName}`,
-  //   otp: rawToken,
-  //   expiryMinutes: 30,
-  // });
-
-  if (env.LOG_OTP_FOR_DEBUG === true && env.NODE_ENV !== "production") {
-    logger.info(`OTP email generated: ${user.email} -> ${rawToken}`);
-  }
+  await sendPasswordResetOtpEmail({
+    to: user.email,
+    userName: `${user.firstName} ${user.lastName}`,
+    otp: rawToken,
+    expiryMinutes: 30,
+  });
 
   const [membership] = await db
     .select({ organizationId: organizationUsers.organizationId })
@@ -345,8 +343,17 @@ export const requestPasswordReset = async (input: { email: string }) => {
   logger.info("Password reset OTP sent", { email: input.email.toLowerCase() });
 };
 
-export const resetPassword = async (input: { token: string; newPassword: string }) => {
-  const tokenRecord = await findValidPasswordResetToken(input.token);
+export const resetPassword = async (input: {
+  email: string;
+  token: string;
+  newPassword: string;
+}) => {
+  const user = await findUserByEmail(input.email);
+  if (!user) {
+    throw new AuthenticationError("Invalid or expired reset token");
+  }
+
+  const tokenRecord = await findValidPasswordResetTokenForUser(user.id, input.token);
   if (!tokenRecord) {
     throw new AuthenticationError("Invalid or expired reset token");
   }
@@ -393,10 +400,14 @@ export const refreshAuthToken = async (input: { refreshToken: string }) => {
     if (!env.JWT_REFRESH_SECRET) {
       throw new Error("JWT_REFRESH_SECRET is not configured");
     }
-    payload = jwt.verify(input.refreshToken, env.JWT_REFRESH_SECRET) as jwt.JwtPayload & {
-      userId: string;
-      organizationId: string;
-    };
+    payload = jwt.verify(input.refreshToken, env.JWT_REFRESH_SECRET, {
+      algorithms: ["HS256"],
+      issuer: env.JWT_ISSUER,
+      audience: env.JWT_AUDIENCE,
+    }) as jwt.JwtPayload & {
+        userId: string;
+        organizationId: string;
+      };
   } catch {
     throw new AuthenticationError("Invalid refresh token");
   }

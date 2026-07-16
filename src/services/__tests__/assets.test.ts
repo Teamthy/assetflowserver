@@ -56,6 +56,7 @@ import {
 } from "../../repositories/assets";
 import { listMaintenanceTasks } from "../../repositories/maintenance";
 import { findOrganizationById } from "../../repositories/organizations";
+import { db } from "../../db";
 import {
   createAssetService,
   disposeAssetService,
@@ -95,6 +96,13 @@ const assetRecord = {
 describe("assets service", () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    jest.mocked(db.select).mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue([{ userId: assignedUserId }]),
+        }),
+      }),
+    } as never);
   });
 
   it("registers an asset and notifies the assigned user", async () => {
@@ -142,6 +150,37 @@ describe("assets service", () => {
       createAssetService(organizationId, actorUserId, {
         name: "HP EliteBook",
         assetTag: "AST-001",
+        purchaseCost: 1500,
+        status: "active",
+        condition: "good",
+        isDepreciable: true,
+        hasFutureEconomicBenefit: true,
+        costCanBeReliablyMeasured: true,
+        expectedUsefulLifeMonths: 36,
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(createAsset).not.toHaveBeenCalled();
+  });
+
+  it("rejects asset assignment to a user outside the organization", async () => {
+    jest.mocked(findOrganizationById).mockResolvedValue({
+      id: organizationId,
+      multiBranchEnabled: false,
+    });
+    jest.mocked(db.select).mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue([]),
+        }),
+      }),
+    } as never);
+
+    await expect(
+      createAssetService(organizationId, actorUserId, {
+        name: "HP EliteBook",
+        assetTag: "AST-001",
+        assignedTo: assignedUserId,
         purchaseCost: 1500,
         status: "active",
         condition: "good",
