@@ -15,6 +15,8 @@ cp .env.example .env
 pnpm install
 pnpm db:migrate
 pnpm dev
+# optional, when REDIS_URL/VALKEY_URL is set:
+pnpm worker
 ```
 
 API listens on `http://localhost:6000`. Health check: `GET /api/health`. Swagger: `GET /api/docs`.

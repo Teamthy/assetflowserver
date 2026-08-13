@@ -63,6 +63,8 @@ const envSchema = z.object({
     .optional()
     .transform((value) => value === "true")
     .default(false),
+  REDIS_URL: z.string().optional(),
+  VALKEY_URL: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
   SENTRY_ENVIRONMENT: z.string().optional(),
   UPLOAD_DIR: z.string().default("./uploads"),
