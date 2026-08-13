@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import { z } from "zod";
+import { sanitizeDatabaseUrl } from "./database-url";
 
 dotenv.config();
 
@@ -14,7 +15,7 @@ const envSchema = z.object({
     .default("development"),
   PORT: z.coerce.number().default(6000),
   HOST: z.string().optional(),
-  DATABASE_URL: z.string().min(1),
+  DATABASE_URL: z.string().min(1).transform(sanitizeDatabaseUrl),
   REQUEST_BODY_LIMIT: z.string().default("256kb"),
   TRUST_PROXY: z
     .string()

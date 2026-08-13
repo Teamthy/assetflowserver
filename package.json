@@ -11,7 +11,8 @@
     "start:worker": "node dist/src/worker.js",
     "worker": "ts-node --files src/worker.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "ts-node --files src/scripts/migrate.ts",
+    "db:migrate:kit": "drizzle-kit migrate",
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand",
     "test:watch": "jest --watch"

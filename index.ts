@@ -17,7 +17,10 @@ const onListen = async () => {
     await seedAllOrganizations();
     logger.info("[Startup] Role seeding completed successfully");
   } catch (error) {
-    logger.error("[Startup] Role seeding failed", { error });
+    logger.error("[Startup] Role seeding failed", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
   }
 
   try {
