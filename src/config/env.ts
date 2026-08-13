@@ -58,6 +58,11 @@ const envSchema = z.object({
     .optional()
     .transform((value) => value === "true")
     .default(false),
+  ENFORCE_RBAC: z
+    .string()
+    .optional()
+    .transform((value) => value === "true")
+    .default(false),
   SENTRY_DSN: z.string().optional(),
   SENTRY_ENVIRONMENT: z.string().optional(),
   UPLOAD_DIR: z.string().default("./uploads"),

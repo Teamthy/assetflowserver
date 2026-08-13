@@ -49,10 +49,20 @@ export const requestResetPasswordSchema = z.object({
   email: z.email(),
 });
 
-export const resetPasswordSchema = z.object({
-  token: z.string().length(6),
-  newPassword: z.string().min(8),
-});
+export const resetPasswordSchema = z
+  .object({
+    token: z.string().min(4).max(10).optional(),
+    otp: z.string().min(4).max(10).optional(),
+    newPassword: z.string().min(8),
+  })
+  .transform((value) => ({
+    token: value.token ?? value.otp ?? "",
+    newPassword: value.newPassword,
+  }))
+  .refine((value) => value.token.length >= 4, {
+    message: "Reset code is required",
+    path: ["token"],
+  });
 
 export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(20).optional(),

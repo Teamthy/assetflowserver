@@ -13,6 +13,7 @@ import {
     SystemRoleName,
 } from "../config/permissions";
 import { getUserRoles } from "../repositories/permissions";
+import { isRbacEnforced } from "../config/access";
 import { AuthenticationError, AuthorizationError } from "../utils/error";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,6 +95,10 @@ export const requireBranchScope = (resourceType: ScopeResourceType) => {
                 return next(new AuthenticationError("Authentication required"));
             }
 
+            if (!isRbacEnforced()) {
+                return next();
+            }
+
             const actorRoles = await getActorRoles(req);
 
             const isBranchScoped = actorRoles.some((r) =>
@@ -162,6 +167,10 @@ export const requireOwnAsset = async (
             return next(new AuthenticationError("Authentication required"));
         }
 
+        if (!isRbacEnforced()) {
+            return next();
+        }
+
         const actorRoles = await getActorRoles(req);
 
         const isAssignmentScoped = actorRoles.some((r) =>
@@ -225,6 +234,10 @@ export const requireOwnTask = async (
     try {
         if (!req.auth?.userId || !req.auth?.organizationId) {
             return next(new AuthenticationError("Authentication required"));
+        }
+
+        if (!isRbacEnforced()) {
+            return next();
         }
 
         const actorRoles = await getActorRoles(req);
@@ -325,6 +338,10 @@ export const requirePrimaryAdmin = async (
     try {
         if (!req.auth?.userId || !req.auth?.organizationId) {
             return next(new AuthenticationError("Authentication required"));
+        }
+
+        if (!isRbacEnforced()) {
+            return next();
         }
 
         const { userId, organizationId } = req.auth;
