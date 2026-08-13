@@ -7,7 +7,10 @@ import { logger } from "./src/utils/logger";
 import { seedAllOrganizations } from "./src/db/seeds/roles.seeder";
 import { startScheduler } from "./src/jobs";
 
-app.listen(env.PORT, "0.0.0.0", async () => {
+const listenHost =
+  env.HOST ?? (env.NODE_ENV === "production" ? "0.0.0.0" : undefined);
+
+const onListen = async () => {
   logger.info(`API running on port ${env.PORT}`);
 
   try {
@@ -23,4 +26,10 @@ app.listen(env.PORT, "0.0.0.0", async () => {
   } catch (error) {
     logger.error("[Startup] Scheduler failed to start", { error });
   }
-});
+};
+
+if (listenHost) {
+  app.listen(env.PORT, listenHost, onListen);
+} else {
+  app.listen(env.PORT, onListen);
+}

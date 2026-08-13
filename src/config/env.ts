@@ -13,6 +13,7 @@ const envSchema = z.object({
     .enum(["development", "production", "test"])
     .default("development"),
   PORT: z.coerce.number().default(6000),
+  HOST: z.string().optional(),
   DATABASE_URL: z.string().min(1),
   REQUEST_BODY_LIMIT: z.string().default("256kb"),
   TRUST_PROXY: z
