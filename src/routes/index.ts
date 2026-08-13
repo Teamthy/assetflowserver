@@ -14,6 +14,8 @@ import { organizationSettingsRouter } from "./organization-settings";
 import { depreciationRouter } from "./depreciation";
 import { bulkRouter } from "./bulk";
 import { docsRouter } from "./docs";
+import * as notificationPreferencesController from "../controllers/notification-preferences";
+import { requireAuth } from "../middlewares/auth";
 
 export const apiRouter = Router();
 
@@ -36,3 +38,13 @@ apiRouter.use("/organization-settings", organizationSettingsRouter);
 apiRouter.use("/depreciation", depreciationRouter);
 apiRouter.use("/bulk", bulkRouter);
 apiRouter.use("/docs", docsRouter);
+apiRouter.get(
+    "/notification-preferences",
+    requireAuth,
+    notificationPreferencesController.getNotificationPreferences,
+);
+apiRouter.patch(
+    "/notification-preferences",
+    requireAuth,
+    notificationPreferencesController.updateNotificationPreferences,
+);

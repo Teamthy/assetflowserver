@@ -5,6 +5,9 @@ import {
     listOrganizationRolesService,
     listOrganizationUsersService,
     removeRoleFromUserService,
+    replaceUserRoleService,
+    removeUserFromOrganizationService,
+    transferOwnershipService,
     suspendUserService,
     reactivateUserService,
 } from "../services/user";
@@ -181,6 +184,100 @@ export const suspendUser = async (
 };
 
 // ─── Reactivate User ──────────────────────────────────────────────────────────
+
+export const replaceUserRole = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        if (!req.auth?.organizationId || !req.auth?.userId) {
+            return next(new AuthenticationError());
+        }
+
+        const targetUserId = String(req.params.userId);
+        const roleName = typeof req.body?.role === "string"
+            ? req.body.role
+            : typeof req.body?.roleName === "string"
+                ? req.body.roleName
+                : "";
+
+        if (!roleName) {
+            return res.status(400).json({
+                success: false,
+                code: "VALIDATION_ERROR",
+                message: "role is required",
+            });
+        }
+
+        const result = await replaceUserRoleService({
+            organizationId: req.auth.organizationId,
+            actorUserId: req.auth.userId,
+            targetUserId,
+            roleName,
+        });
+
+        return res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        return next(error);
+    }
+};
+
+export const removeUser = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        if (!req.auth?.organizationId || !req.auth?.userId) {
+            return next(new AuthenticationError());
+        }
+
+        const result = await removeUserFromOrganizationService({
+            organizationId: req.auth.organizationId,
+            actorUserId: req.auth.userId,
+            targetUserId: String(req.params.userId),
+        });
+
+        return res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        return next(error);
+    }
+};
+
+export const transferOwnership = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        if (!req.auth?.organizationId || !req.auth?.userId) {
+            return next(new AuthenticationError());
+        }
+
+        const newOwnerId = String(req.body?.newOwnerId ?? "");
+        const password = String(req.body?.password ?? "");
+
+        if (!newOwnerId || !password) {
+            return res.status(400).json({
+                success: false,
+                code: "VALIDATION_ERROR",
+                message: "newOwnerId and password are required",
+            });
+        }
+
+        const result = await transferOwnershipService({
+            organizationId: req.auth.organizationId,
+            actorUserId: req.auth.userId,
+            newOwnerId,
+            password,
+        });
+
+        return res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        return next(error);
+    }
+};
 
 export const reactivateUser = async (
     req: Request,

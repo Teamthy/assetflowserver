@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { and, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { db } from "../db";
 import { env } from "../config/env";
 import { AuthenticationError } from "../utils/error";
@@ -7,10 +7,8 @@ import {
   organizationUsers,
   organizations,
   passwordResetTokens,
-  permissions,
   plans,
   refreshTokens,
-  rolePermissions,
   roles,
   userRoles,
   users,
@@ -177,13 +175,6 @@ export const createOrganizationWithOwner = async (input: {
   passwordHash: string;
 }) => {
   return db.transaction(async (tx) => {
-    const readOnlyPermissionSeeds: Array<{ key: string; description: string }> = [
-      { key: "assets.read", description: "View assets" },
-      { key: "branches.read", description: "View branches" },
-      { key: "audit.read", description: "View audit data" },
-      { key: "reports.read", description: "View reports" },
-    ];
-
     const [starterPlan] = await tx
       .insert(plans)
       .values({ name: "Starter", code: "starter", maxStaff: 10 })
@@ -235,40 +226,6 @@ export const createOrganizationWithOwner = async (input: {
         updatedByUserId: owner.id,
       })
       .returning();
-
-    const [auditorRole] = await tx
-      .insert(roles)
-      .values({
-        organizationId: organization.id,
-        name: "auditor",
-        description: "Read-only audit and reporting access",
-        isSystem: true,
-        createdByUserId: owner.id,
-        updatedByUserId: owner.id,
-      })
-      .returning();
-
-    await tx
-      .insert(permissions)
-      .values(readOnlyPermissionSeeds)
-      .onConflictDoNothing();
-
-    const permissionRecords = await tx
-      .select({ id: permissions.id, key: permissions.key })
-      .from(permissions)
-      .where(inArray(permissions.key, readOnlyPermissionSeeds.map((item) => item.key)));
-
-    if (permissionRecords.length > 0) {
-      await tx
-        .insert(rolePermissions)
-        .values(
-          permissionRecords.map((permission) => ({
-            roleId: auditorRole.id,
-            permissionId: permission.id,
-          })),
-        )
-        .onConflictDoNothing();
-    }
 
     await tx.insert(userRoles).values({
       organizationId: organization.id,

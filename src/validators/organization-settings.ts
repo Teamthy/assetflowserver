@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
     DEPRECIATION_METHODS,
-    LOW_VALUE_TREATMENTS,
     SUPPORTED_CURRENCIES,
 } from "../types/organization-settings";
 
@@ -32,7 +31,15 @@ export const updateOrganizationSettingsSchema = z
             .min(1, "Must be at least 1 month")
             .max(600, "Cannot exceed 600 months (50 years)"),
 
-        lowValueTreatment: z.enum(LOW_VALUE_TREATMENTS),
+        lowValueTreatment: z
+            .enum(["track_non_capitalized", "expense", "tracked_non_capitalized", "expensed"])
+            .transform((value) =>
+                value === "tracked_non_capitalized"
+                    ? "track_non_capitalized"
+                    : value === "expensed"
+                        ? "expense"
+                        : value,
+            ),
 
         defaultDepreciationMethod: z.enum(DEPRECIATION_METHODS),
 

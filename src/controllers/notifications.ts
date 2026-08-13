@@ -5,6 +5,8 @@ import {
   markNotificationReadService,
   listNotificationsService,
 } from "../services/notifications";
+import { countUnreadNotifications } from "../repositories/notifications";
+import { subscribeNotificationStream } from "../services/notification-hub";
 import { AuthenticationError, ValidationError } from "../utils/error";
 import { notificationParamsSchema, notificationsQuerySchema } from "../validators/notifications";
 
@@ -24,6 +26,28 @@ const requireAuthContext = (req: Request) => {
     organizationId: req.auth.organizationId,
     userId: req.auth.userId,
   };
+};
+
+export const streamNotifications = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const auth = requireAuthContext(req);
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    subscribeNotificationStream({
+      userId: auth.userId,
+      organizationId: auth.organizationId,
+      res,
+    });
+
+    const unreadCount = await countUnreadNotifications(auth.organizationId, auth.userId);
+    res.write(`event: connected\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+    res.write(`event: unread_count\ndata: ${JSON.stringify({ count: unreadCount })}\n\n`);
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const listNotifications = async (req: Request, res: Response, next: NextFunction) => {

@@ -63,6 +63,7 @@ authRouter.post(
   refreshRateLimit,
   authController.refreshToken,
 );
+authRouter.get("/me", requireAuth, authController.me);
 authRouter.post("/logout", requireAuth, authController.logout);
 authRouter.post("/logout-all", requireAuth, authController.logoutAll);
 authRouter.post("/change-password", requireAuth, authController.changePassword);

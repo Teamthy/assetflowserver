@@ -8,3 +8,4 @@ export * from "./organization-settings";
 export * from "./approvals";
 export * from "./documents";
 export * from "./audit";
+export * from "./notification-preferences";

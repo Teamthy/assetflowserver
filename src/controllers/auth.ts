@@ -32,8 +32,7 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
     const payload = parseBody(registerSchema, req.body);
     const data = await authService.register(payload);
     setRefreshTokenCookie(res, data.refreshToken);
-    const { refreshToken: _refreshToken, ...safeData } = data;
-    res.status(201).json({ success: true, data: safeData });
+    res.status(201).json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -44,8 +43,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     const payload = parseBody(loginSchema, req.body);
     const data = await authService.login(payload);
     setRefreshTokenCookie(res, data.refreshToken);
-    const { refreshToken: _refreshToken, ...safeData } = data;
-    res.status(200).json({ success: true, data: safeData });
+    res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -56,8 +54,7 @@ export const organizationLogin = async (req: Request, res: Response, next: NextF
     const payload = parseBody(organizationLoginSchema, req.body);
     const data = await authService.organizationLogin(payload);
     setRefreshTokenCookie(res, data.refreshToken);
-    const { refreshToken: _refreshToken, ...safeData } = data;
-    res.status(200).json({ success: true, data: safeData });
+    res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -126,8 +123,7 @@ export const refreshToken = async (req: Request, res: Response, next: NextFuncti
     }
     const data = await authService.refreshAuthToken({ refreshToken });
     setRefreshTokenCookie(res, data.refreshToken);
-    const { refreshToken: _refreshToken, ...safeData } = data;
-    res.status(200).json({ success: true, data: safeData });
+    res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
   }
@@ -146,6 +142,21 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
       refreshToken,
     });
     clearRefreshTokenCookie(res);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const me = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.auth?.userId || !req.auth.organizationId) {
+      throw new AuthenticationError();
+    }
+    const data = await authService.getCurrentSession({
+      userId: req.auth.userId,
+      organizationId: req.auth.organizationId,
+    });
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
