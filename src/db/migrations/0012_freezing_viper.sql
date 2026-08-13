@@ -120,27 +120,27 @@ ALTER TABLE "audit_verifications" ADD CONSTRAINT "audit_verifications_campaign_i
 ALTER TABLE "audit_verifications" ADD CONSTRAINT "audit_verifications_asset_id_assets_id_fk" FOREIGN KEY ("asset_id") REFERENCES "public"."assets"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "audit_verifications" ADD CONSTRAINT "audit_verifications_verified_by_user_id_users_id_fk" FOREIGN KEY ("verified_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "audit_verifications" ADD CONSTRAINT "audit_verifications_remediation_completed_by_user_id_users_id_fk" FOREIGN KEY ("remediation_completed_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "organization_settings_org_uq" ON "organization_settings" USING btree ("organization_id");--> statement-breakpoint
-CREATE INDEX "approvals_org_status_idx" ON "approvals" USING btree ("organization_id","status");--> statement-breakpoint
-CREATE INDEX "approvals_org_asset_idx" ON "approvals" USING btree ("organization_id","asset_id");--> statement-breakpoint
-CREATE INDEX "approvals_org_type_idx" ON "approvals" USING btree ("organization_id","type");--> statement-breakpoint
-CREATE INDEX "documents_org_entity_idx" ON "documents" USING btree ("organization_id","entity_type","entity_id");--> statement-breakpoint
-CREATE INDEX "documents_org_category_idx" ON "documents" USING btree ("organization_id","category");--> statement-breakpoint
-CREATE INDEX "documents_org_uploaded_by_idx" ON "documents" USING btree ("organization_id","uploaded_by_user_id");--> statement-breakpoint
-CREATE INDEX "audit_campaigns_org_status_idx" ON "audit_campaigns" USING btree ("organization_id","status");--> statement-breakpoint
-CREATE INDEX "audit_campaigns_org_auditor_idx" ON "audit_campaigns" USING btree ("organization_id","auditor_user_id");--> statement-breakpoint
-CREATE INDEX "audit_campaigns_org_branch_idx" ON "audit_campaigns" USING btree ("organization_id","branch_id");--> statement-breakpoint
-CREATE INDEX "audit_verifications_campaign_asset_idx" ON "audit_verifications" USING btree ("campaign_id","asset_id");--> statement-breakpoint
-CREATE INDEX "audit_verifications_org_status_idx" ON "audit_verifications" USING btree ("organization_id","status");--> statement-breakpoint
-CREATE INDEX "audit_verifications_campaign_status_idx" ON "audit_verifications" USING btree ("campaign_id","status");--> statement-breakpoint
-CREATE INDEX "asset_lifecycle_org_asset_date_id_idx" ON "asset_lifecycle_events" USING btree ("organization_id","asset_id","occurred_at","id");--> statement-breakpoint
-CREATE INDEX "assets_org_created_at_idx" ON "assets" USING btree ("organization_id","created_at","id") WHERE "assets"."deleted_at" IS NULL;--> statement-breakpoint
-CREATE INDEX "assets_org_purchase_date_idx" ON "assets" USING btree ("organization_id","purchase_date","id") WHERE "assets"."deleted_at" IS NULL;--> statement-breakpoint
-CREATE INDEX "assets_org_warranty_expiry_idx" ON "assets" USING btree ("organization_id","warranty_expiry_date","id") WHERE "assets"."deleted_at" IS NULL AND "assets"."warranty_expiry_date" IS NOT NULL;--> statement-breakpoint
-CREATE INDEX "assets_org_assigned_to_idx" ON "assets" USING btree ("organization_id","assigned_to") WHERE "assets"."deleted_at" IS NULL AND "assets"."assigned_to" IS NOT NULL;--> statement-breakpoint
-CREATE INDEX "notifications_org_user_created_at_id_idx" ON "notifications" USING btree ("organization_id","user_id","created_at","id");--> statement-breakpoint
-CREATE INDEX "notifications_org_user_unread_created_at_idx" ON "notifications" USING btree ("organization_id","user_id","created_at","id") WHERE "notifications"."is_read" = false;--> statement-breakpoint
-CREATE INDEX "maintenance_org_created_at_idx" ON "maintenance_tasks" USING btree ("organization_id","created_at","id") WHERE "maintenance_tasks"."deleted_at" IS NULL;--> statement-breakpoint
-CREATE INDEX "maintenance_org_status_created_at_idx" ON "maintenance_tasks" USING btree ("organization_id","status","created_at","id") WHERE "maintenance_tasks"."deleted_at" IS NULL;--> statement-breakpoint
-CREATE INDEX "maintenance_org_assigned_to_idx" ON "maintenance_tasks" USING btree ("organization_id","assigned_to") WHERE "maintenance_tasks"."deleted_at" IS NULL AND "maintenance_tasks"."assigned_to" IS NOT NULL;--> statement-breakpoint
-CREATE INDEX "maintenance_org_due_open_idx" ON "maintenance_tasks" USING btree ("organization_id","due_at","id") WHERE "maintenance_tasks"."deleted_at" IS NULL AND "maintenance_tasks"."status" IN ('open', 'in_progress');
+CREATE UNIQUE INDEX IF NOT EXISTS "organization_settings_org_uq" ON "organization_settings" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "approvals_org_status_idx" ON "approvals" USING btree ("organization_id","status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "approvals_org_asset_idx" ON "approvals" USING btree ("organization_id","asset_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "approvals_org_type_idx" ON "approvals" USING btree ("organization_id","type");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "documents_org_entity_idx" ON "documents" USING btree ("organization_id","entity_type","entity_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "documents_org_category_idx" ON "documents" USING btree ("organization_id","category");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "documents_org_uploaded_by_idx" ON "documents" USING btree ("organization_id","uploaded_by_user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "audit_campaigns_org_status_idx" ON "audit_campaigns" USING btree ("organization_id","status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "audit_campaigns_org_auditor_idx" ON "audit_campaigns" USING btree ("organization_id","auditor_user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "audit_campaigns_org_branch_idx" ON "audit_campaigns" USING btree ("organization_id","branch_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "audit_verifications_campaign_asset_idx" ON "audit_verifications" USING btree ("campaign_id","asset_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "audit_verifications_org_status_idx" ON "audit_verifications" USING btree ("organization_id","status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "audit_verifications_campaign_status_idx" ON "audit_verifications" USING btree ("campaign_id","status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "asset_lifecycle_org_asset_date_id_idx" ON "asset_lifecycle_events" USING btree ("organization_id","asset_id","occurred_at","id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "assets_org_created_at_idx" ON "assets" USING btree ("organization_id","created_at","id") WHERE "assets"."deleted_at" IS NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "assets_org_purchase_date_idx" ON "assets" USING btree ("organization_id","purchase_date","id") WHERE "assets"."deleted_at" IS NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "assets_org_warranty_expiry_idx" ON "assets" USING btree ("organization_id","warranty_expiry_date","id") WHERE "assets"."deleted_at" IS NULL AND "assets"."warranty_expiry_date" IS NOT NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "assets_org_assigned_to_idx" ON "assets" USING btree ("organization_id","assigned_to") WHERE "assets"."deleted_at" IS NULL AND "assets"."assigned_to" IS NOT NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "notifications_org_user_created_at_id_idx" ON "notifications" USING btree ("organization_id","user_id","created_at","id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "notifications_org_user_unread_created_at_idx" ON "notifications" USING btree ("organization_id","user_id","created_at","id") WHERE "notifications"."is_read" = false;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "maintenance_org_created_at_idx" ON "maintenance_tasks" USING btree ("organization_id","created_at","id") WHERE "maintenance_tasks"."deleted_at" IS NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "maintenance_org_status_created_at_idx" ON "maintenance_tasks" USING btree ("organization_id","status","created_at","id") WHERE "maintenance_tasks"."deleted_at" IS NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "maintenance_org_assigned_to_idx" ON "maintenance_tasks" USING btree ("organization_id","assigned_to") WHERE "maintenance_tasks"."deleted_at" IS NULL AND "maintenance_tasks"."assigned_to" IS NOT NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "maintenance_org_due_open_idx" ON "maintenance_tasks" USING btree ("organization_id","due_at","id") WHERE "maintenance_tasks"."deleted_at" IS NULL AND "maintenance_tasks"."status" IN ('open', 'in_progress');
