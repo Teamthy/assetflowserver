@@ -1,17 +1,27 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import Handlebars from "handlebars";
 import { Resend } from "resend";
 import { env } from "../config/env";
 import { logger } from "../utils/logger";
 
-const resend = new Resend(env.RESEND_API_KEY);
-const templateCache = new Map<string, Handlebars.TemplateDelegate<Record<string, string>>>();
+type TemplateFn = (data: Record<string, string>) => string;
+
+const templateCache = new Map<string, TemplateFn>();
+
+const isEmailConfigured = () => {
+  const key = env.RESEND_API_KEY;
+  return Boolean(
+    key &&
+      key !== "re_dev_placeholder" &&
+      !key.startsWith("re_replace"),
+  );
+};
 
 const renderTemplate = async (
   templateFileName: string,
   data: Record<string, string>,
 ) => {
+  const Handlebars = (await import("handlebars")).default;
   const templatePath = path.join(__dirname, "../templates/emails", templateFileName);
   let template = templateCache.get(templatePath);
   if (!template) {
@@ -20,6 +30,48 @@ const renderTemplate = async (
     templateCache.set(templatePath, template);
   }
   return template(data);
+};
+
+const sendHtmlEmail = async (input: {
+  to: string;
+  subject: string;
+  html: string;
+  context: Record<string, unknown>;
+}) => {
+  if (!isEmailConfigured()) {
+    logger.warn("Email skipped because RESEND_API_KEY is not configured", {
+      to: input.to,
+      subject: input.subject,
+    });
+    return;
+  }
+
+  const resend = new Resend(env.RESEND_API_KEY);
+  const { data, error } = await resend.emails.send({
+    from: env.RESEND_FROM_EMAIL,
+    to: input.to,
+    subject: input.subject,
+    html: input.html,
+  });
+
+  if (error) {
+    logger.error("Resend send failed", {
+      ...input.context,
+      to: input.to,
+      from: env.RESEND_FROM_EMAIL,
+      subject: input.subject,
+      resendError: error,
+    });
+    throw new Error(`Failed to send email: ${JSON.stringify(error)}`);
+  }
+
+  logger.info("Resend send success", {
+    ...input.context,
+    to: input.to,
+    from: env.RESEND_FROM_EMAIL,
+    subject: input.subject,
+    resendEmailId: data?.id,
+  });
 };
 
 export const sendPasswordResetOtpEmail = async (input: {
@@ -35,28 +87,11 @@ export const sendPasswordResetOtpEmail = async (input: {
     supportEmail: env.SUPPORT_EMAIL,
   });
 
-  const { data, error } = await resend.emails.send({
-    from: env.RESEND_FROM_EMAIL,
+  await sendHtmlEmail({
     to: input.to,
     subject: "Your Password Reset OTP",
     html,
-  });
-
-  if (error) {
-    logger.error("Resend password reset OTP send failed", {
-      to: input.to,
-      from: env.RESEND_FROM_EMAIL,
-      subject: "Your Password Reset OTP",
-      resendError: error,
-    });
-    throw new Error(`Failed to send password reset OTP email: ${JSON.stringify(error)}`);
-  }
-
-  logger.info("Resend password reset OTP send success", {
-    to: input.to,
-    from: env.RESEND_FROM_EMAIL,
-    subject: "Your Password Reset OTP",
-    resendEmailId: data?.id,
+    context: { kind: "password-reset-otp" },
   });
 };
 
@@ -70,28 +105,11 @@ export const sendOnboardingWelcomeEmail = async (input: {
     organizationName: input.organizationName,
   });
 
-  const { data, error } = await resend.emails.send({
-    from: env.RESEND_FROM_EMAIL,
+  await sendHtmlEmail({
     to: input.to,
     subject: "Welcome to the Platform",
     html,
-  });
-
-  if (error) {
-    logger.error("Resend onboarding welcome send failed", {
-      to: input.to,
-      from: env.RESEND_FROM_EMAIL,
-      subject: "Welcome to the Platform",
-      resendError: error,
-    });
-    throw new Error(`Failed to send onboarding welcome email: ${JSON.stringify(error)}`);
-  }
-
-  logger.info("Resend onboarding welcome send success", {
-    to: input.to,
-    from: env.RESEND_FROM_EMAIL,
-    subject: "Welcome to the Platform",
-    resendEmailId: data?.id,
+    context: { kind: "onboarding-welcome" },
   });
 };
 
@@ -110,30 +128,14 @@ export const sendNotificationEmail = async (input: {
     supportEmail: env.SUPPORT_EMAIL,
   });
 
-  const { data, error } = await resend.emails.send({
-    from: env.RESEND_FROM_EMAIL,
+  await sendHtmlEmail({
     to: input.to,
     subject: input.title,
     html,
-  });
-
-  if (error) {
-    logger.error("Resend notification email send failed", {
-      to: input.to,
-      from: env.RESEND_FROM_EMAIL,
-      subject: input.title,
-      resendError: error,
-    });
-    throw new Error(`Failed to send notification email: ${JSON.stringify(error)}`);
-  }
-
-  logger.info("Resend notification email send success", {
-    to: input.to,
-    from: env.RESEND_FROM_EMAIL,
-    subject: input.title,
-    resendEmailId: data?.id,
+    context: { kind: "notification" },
   });
 };
+
 export const sendInvitationEmail = async (input: {
   to: string;
   inviteeName: string;
@@ -151,25 +153,10 @@ export const sendInvitationEmail = async (input: {
     supportEmail: env.SUPPORT_EMAIL,
   });
 
-  const { data, error } = await resend.emails.send({
-    from: env.RESEND_FROM_EMAIL,
+  await sendHtmlEmail({
     to: input.to,
     subject: `You've been invited to join ${input.organizationName} on AssetFlow`,
     html,
-  });
-
-  if (error) {
-    logger.error("Resend invitation email send failed", {
-      to: input.to,
-      organizationName: input.organizationName,
-      resendError: error,
-    });
-    throw new Error(`Failed to send invitation email: ${JSON.stringify(error)}`);
-  }
-
-  logger.info("Resend invitation email send success", {
-    to: input.to,
-    organizationName: input.organizationName,
-    resendEmailId: data?.id,
+    context: { kind: "invitation", organizationName: input.organizationName },
   });
 };

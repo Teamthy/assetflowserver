@@ -29,6 +29,9 @@ export const createApp = () => {
   app.use(cors(corsOptions));
   app.use(express.json({ limit: env.REQUEST_BODY_LIMIT }));
   app.use(requestLogger);
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
   app.use("/api", globalRateLimit, apiRouter);
   app.use(errorHandler);
   return app;

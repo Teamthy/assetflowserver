@@ -1,5 +1,24 @@
 # Deploy AssetFlow
 
+## Local — API must be on :6000
+
+The client posts register/login to `http://localhost:6000/api`. If this process is down, the UI shows `AxiosError: Network Error`.
+
+```powershell
+cd C:\Users\USER\Desktop\PROJECTS\Assetflow\assetflowserver
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+# DATABASE_URL=postgres://postgres:postgres@localhost:5432/assetflow
+docker compose up -d   # optional: local Postgres 16
+pnpm add handlebars bullmq ioredis
+pnpm db:migrate
+pnpm dev
+# Must print: API running on port 6000
+Invoke-RestMethod http://localhost:6000/api/health
+# Expect: status=ok
+```
+
+In development, Resend keys are optional. `DATABASE_URL` is required.
+
 ## Client — Vercel
 
 The Next.js app in `assetflowclient` is the Vercel target.

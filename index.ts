@@ -7,7 +7,7 @@ import { logger } from "./src/utils/logger";
 import { seedAllOrganizations } from "./src/db/seeds/roles.seeder";
 import { startScheduler } from "./src/jobs";
 
-app.listen(env.PORT, async () => {
+app.listen(env.PORT, "0.0.0.0", async () => {
   logger.info(`API running on port ${env.PORT}`);
 
   try {
