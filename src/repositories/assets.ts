@@ -470,22 +470,24 @@ export const updateAssetById = async (
 
       if (!current) return undefined;
 
+      // Lock the row in this transaction. Do NOT compare updatedAt:
+      // node-pg Date is millisecond precision, Postgres timestamptz is
+      // microseconds, so eq(updatedAt, jsDate) false-conflicts (~half the time).
       const [record] = await tx
         .update(assets)
         .set(updatePayload)
         .where(
-	          and(
-	            eq(assets.organizationId, organizationId),
-	            eq(assets.id, assetId),
-	            isNull(assets.deletedAt),
-	            eq(assets.updatedAt, current.updatedAt),
-	          ),
-	        )
-	        .returning();
+          and(
+            eq(assets.organizationId, organizationId),
+            eq(assets.id, assetId),
+            isNull(assets.deletedAt),
+          ),
+        )
+        .returning();
 
-	      if (!record) {
-	        throw new ConflictError("Asset was modified concurrently");
-	      }
+      if (!record) {
+        throw new ConflictError("Asset was modified concurrently");
+      }
 
       const eventType =
         record.assignedTo !== current.assignedTo

@@ -334,13 +334,21 @@ export const refreshAuthToken = async (input: { refreshToken: string }) => {
   });
 
   const refreshExpiresAt = new Date(Date.now() + refreshTokenTtlMs);
-  await rotateRefreshToken({
-    currentRawToken: input.refreshToken,
-    userId: user.id,
-    organizationId: payload.organizationId,
-    nextRawToken: newRefreshToken,
-    nextExpiresAt: refreshExpiresAt,
-  });
+  try {
+    await rotateRefreshToken({
+      currentRawToken: input.refreshToken,
+      userId: user.id,
+      organizationId: payload.organizationId,
+      nextRawToken: newRefreshToken,
+      nextExpiresAt: refreshExpiresAt,
+    });
+  } catch (error) {
+    if (error instanceof AuthenticationError) throw error;
+    logger.error("Refresh token rotate failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new AuthenticationError("Could not rotate refresh token");
+  }
 
   logger.info("Auth token refreshed", {
     userId: user.id,

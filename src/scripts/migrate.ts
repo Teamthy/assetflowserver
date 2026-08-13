@@ -1,7 +1,16 @@
+import dotenv from "dotenv";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { env } from "../config/env";
+import { sanitizeDatabaseUrl } from "../config/database-url";
+
+dotenv.config();
+
+/**
+ * Migrations only need DATABASE_URL.
+ * Do not import src/config/env.ts — that schema requires FRONTEND_URL / Resend
+ * and will fail the Render build when those are blank or a CORS list.
+ */
 
 const formatError = (error: unknown) => {
   if (!(error instanceof Error)) return String(error);
@@ -12,8 +21,16 @@ const formatError = (error: unknown) => {
 };
 
 const run = async () => {
+  const raw = process.env.DATABASE_URL?.trim();
+  if (!raw) {
+    throw new Error(
+      "DATABASE_URL is required to migrate. Set it in the Render Environment tab.",
+    );
+  }
+
+  const connectionString = sanitizeDatabaseUrl(raw);
   const pool = new Pool({
-    connectionString: env.DATABASE_URL,
+    connectionString,
     ssl: { rejectUnauthorized: false },
     connectionTimeoutMillis: 20_000,
     statement_timeout: 60_000,

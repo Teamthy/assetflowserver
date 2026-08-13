@@ -13,7 +13,7 @@ const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),
-  PORT: z.coerce.number().default(6000),
+  PORT: z.coerce.number().default(7000),
   HOST: z.string().optional(),
   DATABASE_URL: z.string().min(1).transform(sanitizeDatabaseUrl),
   REQUEST_BODY_LIMIT: z.string().default("256kb"),
@@ -51,14 +51,49 @@ const envSchema = z.object({
         .map((origin) => origin.trim())
         .filter(Boolean),
     ),
-  FRONTEND_URL: z.string().url().default("http://localhost:3000"),
-  RESEND_API_KEY: isProduction
-    ? z.string().min(1)
-    : z.string().default("re_dev_placeholder"),
-  RESEND_FROM_EMAIL: isProduction
-    ? z.email()
-    : z.email().default("noreply@localhost.local"),
-  SUPPORT_EMAIL: z.email().default("support@example.com"),
+  FRONTEND_URL: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const first = (value ?? "")
+        .split(",")[0]
+        .trim()
+        .replace(/\/$/, "");
+      if (!first) return "http://localhost:3000";
+      try {
+        return new URL(first).origin;
+      } catch {
+        try {
+          return new URL(`https://${first}`).origin;
+        } catch {
+          return "http://localhost:3000";
+        }
+      }
+    }),
+  RESEND_API_KEY: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim() ?? "";
+      if (trimmed) return trimmed;
+      return isProduction ? "re_placeholder_not_configured" : "re_dev_placeholder";
+    }),
+  RESEND_FROM_EMAIL: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim() ?? "";
+      return trimmed || "noreply@localhost.local";
+    })
+    .pipe(z.email()),
+  SUPPORT_EMAIL: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim() ?? "";
+      return trimmed || "support@example.com";
+    })
+    .pipe(z.email()),
   LOG_OTP_FOR_DEBUG: z
     .string()
     .optional()
