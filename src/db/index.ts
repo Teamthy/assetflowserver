@@ -3,7 +3,16 @@ import { Pool } from "pg";
 import { env } from "../config/env";
 import * as schema from "../model";
 
-const ssl = env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined;
+const databaseHost = (() => {
+  try {
+    return new URL(env.DATABASE_URL).hostname;
+  } catch {
+    return "";
+  }
+})();
+
+const isLocalDb = databaseHost === "localhost" || databaseHost === "127.0.0.1";
+const ssl = isLocalDb ? undefined : { rejectUnauthorized: false };
 
 export const pool = new Pool({
   connectionString: env.DATABASE_URL,
