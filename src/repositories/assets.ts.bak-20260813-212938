@@ -139,18 +139,6 @@ const buildAssetFilters = (
     filters.push(eq(assets.status, query.status));
   }
 
-  if (query?.condition) {
-    filters.push(eq(assets.condition, query.condition));
-  }
-
-  if (query?.category) {
-    filters.push(eq(assets.category, query.category));
-  }
-
-  if (query?.accountingTreatment) {
-    filters.push(eq(assets.accountingTreatment, query.accountingTreatment));
-  }
-
   if (query?.branchId) {
     filters.push(eq(assets.branchId, query.branchId));
   }

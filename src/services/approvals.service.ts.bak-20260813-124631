@@ -20,7 +20,6 @@ import {
   AuthorizationError,
 } from "../utils/error";
 import { logger } from "../utils/logger";
-import { isUndefinedTableError } from "../utils/db-errors";
 
 const APPROVAL_EXPIRY_HOURS = 72;
 
@@ -355,15 +354,7 @@ export async function listPendingApprovalsService(
   organizationId: string,
   type?: "disposal" | "transfer"
 ) {
-  try {
-    return await listPendingApprovals(organizationId, type);
-  } catch (error) {
-    if (isUndefinedTableError(error)) {
-      logger.warn("approvals table missing; returning empty list. Run pnpm db:migrate.");
-      return [];
-    }
-    throw error;
-  }
+  return listPendingApprovals(organizationId, type);
 }
 
 // ─── List Asset Approvals ─────────────────────────────────────────────────────
@@ -372,13 +363,5 @@ export async function listAssetApprovalsService(
   organizationId: string,
   assetId: string
 ) {
-  try {
-    return await listAssetApprovals(organizationId, assetId);
-  } catch (error) {
-    if (isUndefinedTableError(error)) {
-      logger.warn("approvals table missing; returning empty list. Run pnpm db:migrate.");
-      return [];
-    }
-    throw error;
-  }
+  return listAssetApprovals(organizationId, assetId);
 }

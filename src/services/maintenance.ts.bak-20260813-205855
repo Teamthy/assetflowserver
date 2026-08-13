@@ -334,7 +334,7 @@ export const completeMaintenanceService = async (
       throw new ConflictError("Cannot complete a cancelled maintenance task");
     }
 
-    const completedAt = payload.completedAt ?? new Date();
+    const completedAt = new Date();
     const [record] = await tx
       .update(maintenanceTasks)
       .set({

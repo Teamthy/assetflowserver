@@ -15,7 +15,6 @@ import {
     ValidationError,
 } from "../utils/error";
 import { logger } from "../utils/logger";
-import { isUndefinedTableError } from "../utils/db-errors";
 
 const ALLOWED_MIME_TYPES = new Set([
     // Images
@@ -168,23 +167,7 @@ export async function listDocumentsService(
     organizationId: string,
     query: ListDocumentsQuery
 ) {
-    try {
-        return await listDocuments(organizationId, query);
-    } catch (error) {
-        if (isUndefinedTableError(error)) {
-            logger.warn("documents table missing; returning empty list. Run pnpm db:migrate.");
-            return {
-                data: [],
-                pagination: {
-                    page: query.page ?? 1,
-                    limit: query.limit ?? 20,
-                    total: 0,
-                    totalPages: 1,
-                },
-            };
-        }
-        throw error;
-    }
+    return listDocuments(organizationId, query);
 }
 
 // ─── Delete Document ──────────────────────────────────────────────────────────

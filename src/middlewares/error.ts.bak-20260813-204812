@@ -37,30 +37,10 @@ export const errorHandler = (
     });
   }
 
-  const message = formatValidationMessage(appError.message, validationErrors);
-
   return res.status(appError.statusCode).json({
     success: false,
     code: appError.code,
-    message,
+    message: appError.message,
     ...(validationErrors ? { errors: validationErrors } : {}),
   });
-};
-
-const formatValidationMessage = (fallback: string, errors: unknown): string => {
-  if (fallback !== "Validation failed") return fallback;
-  if (!Array.isArray(errors) || errors.length === 0) return fallback;
-
-  const parts = errors.slice(0, 3).map((issue) => {
-    if (!issue || typeof issue !== "object") return "";
-    const row = issue as { path?: Array<string | number>; message?: string };
-    const path = Array.isArray(row.path)
-      ? row.path.filter((part) => part !== undefined && part !== "").join(".")
-      : "";
-    const text = typeof row.message === "string" ? row.message : "";
-    if (path && text) return `${path}: ${text}`;
-    return text;
-  }).filter(Boolean);
-
-  return parts.length > 0 ? parts.join(" · ") : fallback;
 };

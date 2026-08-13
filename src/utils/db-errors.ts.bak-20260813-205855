@@ -1,0 +1,8 @@
+export const isUndefinedTableError = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: string; message?: string };
+  return (
+    candidate.code === "42P01" ||
+    /relation .* does not exist/i.test(candidate.message ?? "")
+  );
+};
