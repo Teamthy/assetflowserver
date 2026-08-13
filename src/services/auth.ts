@@ -17,7 +17,6 @@ import {
   revokeRefreshToken,
   revokeRefreshTokensForUser,
   rotateRefreshToken,
-  saveRefreshToken,
   normalizeSlug,
 } from "../repositories/auth";
 import { AuthenticationError, ConflictError, NotFoundError } from "../utils/error";
@@ -26,45 +25,13 @@ import { organizationUsers } from "../model";
 import { logger } from "../utils/logger";
 import { createInAppNotification } from "./notifications";
 import { seedRolesForNewOrganization } from "../db/seeds/roles.seeder";
-
-const parseDurationMs = (value: string): number => {
-  const match = value.match(/^(\d+)([smhd])$/);
-  if (!match) {
-    logger.error("Invalid JWT_REFRESH_EXPIRES_IN format. Expected values like '7d', '12h', '30m', or '60s'.", {
-      value,
-    });
-    throw new Error(`Invalid duration format: "${value}"`);
-  }
-
-  const amount = Number(match[1]);
-  const unit = match[2];
-  const unitMap: Record<string, number> = {
-    s: 1000,
-    m: 60_000,
-    h: 3_600_000,
-    d: 86_400_000,
-  };
-
-  return amount * unitMap[unit];
-};
-
-const accessExpiresIn = env.JWT_ACCESS_EXPIRES_IN as jwt.SignOptions["expiresIn"];
-const refreshExpiresIn = env.JWT_REFRESH_EXPIRES_IN as jwt.SignOptions["expiresIn"];
-const refreshTokenTtlMs = parseDurationMs(env.JWT_REFRESH_EXPIRES_IN);
-
-const signAccessToken = (payload: { userId: string; organizationId: string; email: string }) => {
-  if (!env.JWT_SECRET) {
-    throw new Error("JWT_SECRET is not configured");
-  }
-  return jwt.sign(payload, env.JWT_SECRET, { expiresIn: accessExpiresIn });
-};
-
-const signRefreshToken = (payload: { userId: string; organizationId: string }) => {
-  if (!env.JWT_REFRESH_SECRET) {
-    throw new Error("JWT_REFRESH_SECRET is not configured");
-  }
-  return jwt.sign(payload, env.JWT_REFRESH_SECRET, { expiresIn: refreshExpiresIn });
-};
+import {
+  issueAuthSession,
+  loadMembershipContext,
+  refreshTokenTtlMs,
+  signAccessToken,
+  signRefreshToken,
+} from "./auth-session";
 
 type RegisterInput =
   | {
@@ -116,44 +83,13 @@ export const register = async (input: RegisterInput) => {
   // Seed system roles and permissions for the new organization
   await seedRolesForNewOrganization(organization.id);
 
-  const accessToken = signAccessToken({
-    userId: owner.id,
-    organizationId: organization.id,
-    email: owner.email,
-  });
-  const refreshToken = signRefreshToken({ userId: owner.id, organizationId: organization.id });
-
-  const refreshExpiresAt = new Date(Date.now() + refreshTokenTtlMs);
-  await saveRefreshToken(owner.id, organization.id, refreshToken, refreshExpiresAt);
-
-  // Temporarily disabled while email domain/provider setup is being finalized.
-  // await sendOnboardingWelcomeEmail({
-  //   to: owner.email,
-  //   firstName: owner.firstName,
-  //   organizationName: organization.name,
-  // });
-
   logger.info("User registration successful", {
     userId: owner.id,
     organizationId: organization.id,
     accountType: input.accountType,
   });
 
-  return {
-    user: {
-      id: owner.id,
-      firstName: owner.firstName,
-      lastName: owner.lastName,
-      email: owner.email,
-    },
-    organization: {
-      id: organization.id,
-      name: organization.name,
-      slug: organization.slug,
-    },
-    accessToken,
-    refreshToken,
-  };
+  return issueAuthSession(owner.id, organization.id);
 };
 
 export const login = async (input: { email: string; password: string }) => {
@@ -189,40 +125,12 @@ export const login = async (input: { email: string; password: string }) => {
 
   const [orgMembership] = memberships;
 
-  const accessToken = signAccessToken({
-    userId: user.id,
-    organizationId: orgMembership.organizationId,
-    email: user.email,
-  });
-
-  const refreshToken = signRefreshToken({
-    userId: user.id,
-    organizationId: orgMembership.organizationId,
-  });
-
-  const refreshExpiresAt = new Date(Date.now() + refreshTokenTtlMs);
-  await saveRefreshToken(user.id, orgMembership.organizationId, refreshToken, refreshExpiresAt);
-
   logger.info("User login successful", {
     userId: user.id,
     organizationId: orgMembership.organizationId,
   });
 
-  return {
-    user: {
-      id: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-    },
-    organization: {
-      id: orgMembership.organizationId,
-      name: orgMembership.organizationName,
-      slug: orgMembership.organizationSlug,
-    },
-    accessToken,
-    refreshToken,
-  };
+  return issueAuthSession(user.id, orgMembership.organizationId);
 };
 
 export const organizationLogin = async (input: {
@@ -250,36 +158,27 @@ export const organizationLogin = async (input: {
     throw new AuthenticationError("User does not belong to this organization");
   }
 
-  const accessToken = signAccessToken({
-    userId: user.id,
-    organizationId: organization.id,
-    email: user.email,
-  });
-  const refreshToken = signRefreshToken({ userId: user.id, organizationId: organization.id });
-
-  const refreshExpiresAt = new Date(Date.now() + refreshTokenTtlMs);
-  await saveRefreshToken(user.id, organization.id, refreshToken, refreshExpiresAt);
-
   logger.info("Organization login successful", {
     userId: user.id,
     organizationId: organization.id,
     organizationSlug: organization.slug,
   });
 
+  return issueAuthSession(user.id, organization.id);
+};
+
+export const getCurrentSession = async (input: { userId: string; organizationId: string }) => {
+  const context = await loadMembershipContext(input.userId, input.organizationId);
   return {
-    user: {
-      id: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-    },
+    user: context.user,
     organization: {
-      id: organization.id,
-      slug: organization.slug,
-      name: organization.name,
+      id: context.organization.id,
+      name: context.organization.name,
+      slug: context.organization.slug,
+      isMultiBranch: context.organization.multiBranchEnabled,
     },
-    accessToken,
-    refreshToken,
+    role: context.role,
+    roles: context.roles,
   };
 };
 
@@ -448,7 +347,21 @@ export const refreshAuthToken = async (input: { refreshToken: string }) => {
     organizationId: payload.organizationId,
   });
 
-  return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+  const context = await loadMembershipContext(user.id, payload.organizationId);
+
+  return {
+    accessToken: newAccessToken,
+    refreshToken: newRefreshToken,
+    role: context.role,
+    roles: context.roles,
+    user: context.user,
+    organization: {
+      id: context.organization.id,
+      name: context.organization.name,
+      slug: context.organization.slug,
+      isMultiBranch: context.organization.multiBranchEnabled,
+    },
+  };
 };
 
 export const logout = async (input: {

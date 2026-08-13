@@ -47,6 +47,20 @@ usersRouter.delete(
     usersController.removeUserRole
 );
 
+usersRouter.patch(
+    "/:userId/role",
+    requirePermission(PERMISSIONS.ROLE_ASSIGN),
+    requireNotReadOnly,
+    usersController.replaceUserRole
+);
+
+usersRouter.delete(
+    "/:userId",
+    requirePermission(PERMISSIONS.USER_REMOVE),
+    requireNotReadOnly,
+    usersController.removeUser
+);
+
 // ─── Suspend user ─────────────────────────────────────────────────────────────
 // Admin and Org Admin only — USER_SUSPEND permission
 usersRouter.patch(

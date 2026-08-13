@@ -11,7 +11,9 @@ import {
     getPendingInvitations,
 } from "../repositories/invitations";
 import { findUserByEmail } from "../repositories/auth";
-import { getRoleByName, assignRoleToUser } from "../repositories/permissions";
+import { getRoleByName, assignRoleToUser, getUserRoles } from "../repositories/permissions";
+import { issueAuthSession } from "./auth-session";
+import { pickPrimaryRole } from "./auth-session";
 import { sendInvitationEmail } from "./email";
 import { createInAppNotification } from "./notifications";
 import {
@@ -28,16 +30,41 @@ const INVITE_EXPIRY_HOURS = 48;
 
 // ─── Send Invitation ──────────────────────────────────────────────────────────
 
+const SYSTEM_ROLE_ALIASES: Record<string, string> = {
+    admin: "admin",
+    primary_admin: "admin",
+    org_admin: "admin",
+    asset_manager: "asset_manager",
+    finance: "finance",
+    finance_user: "finance",
+    auditor: "auditor",
+    branch_manager: "branch_manager",
+    maintenance_staff: "maintenance_staff",
+    standard_staff: "standard_staff",
+};
+
+function nameFromEmail(email: string) {
+    const local = email.split("@")[0] ?? "member";
+    const parts = local.split(/[._-]+/).filter(Boolean);
+    const firstName = parts[0] ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1) : "Team";
+    const lastName = parts[1] ? parts[1].charAt(0).toUpperCase() + parts[1].slice(1) : "Member";
+    return { firstName, lastName };
+}
+
 export async function inviteUserService(input: {
     organizationId: string;
     actorUserId: string;
     email: string;
-    firstName: string;
-    lastName: string;
+    firstName?: string;
+    lastName?: string;
     roleId?: string;
+    role?: string;
 }) {
-    const { organizationId, actorUserId, email, firstName, lastName, roleId } =
-        input;
+    const derivedNames = nameFromEmail(input.email);
+    const { organizationId, actorUserId, email } = input;
+    const firstName = input.firstName?.trim() || derivedNames.firstName;
+    const lastName = input.lastName?.trim() || derivedNames.lastName;
+    let roleId = input.roleId;
 
     // Get organization details
     const [organization] = await db
@@ -118,6 +145,12 @@ export async function inviteUserService(input: {
         expiresAt,
     });
 
+    if (!roleId && input.role) {
+        const canonical = SYSTEM_ROLE_ALIASES[input.role] ?? input.role;
+        const namedRole = await getRoleByName(organizationId, canonical);
+        if (namedRole) roleId = namedRole.id;
+    }
+
     // Assign role if provided
     if (roleId) {
         try {
@@ -137,7 +170,7 @@ export async function inviteUserService(input: {
     }
 
     // Build accept URL
-    const acceptUrl = `${env.FRONTEND_URL}/invitations/accept?token=${inviteToken}`;
+    const acceptUrl = `${env.FRONTEND_URL}/accept-invite/${inviteToken}`;
 
     // Send invitation email (non-blocking)
     setImmediate(() => {
@@ -267,19 +300,11 @@ export async function acceptInvitationService(input: {
         organizationId: invitation.organizationId,
     });
 
+    const session = await issueAuthSession(invitation.userId, invitation.organizationId);
+
     return {
         message: "Invitation accepted successfully",
-        user: {
-            id: invitation.userId,
-            email: invitation.userEmail,
-            firstName: firstName ?? invitation.userFirstName,
-            lastName: lastName ?? invitation.userLastName,
-        },
-        organization: {
-            id: invitation.organizationId,
-            name: invitation.organizationName,
-            slug: invitation.organizationSlug,
-        },
+        ...session,
     };
 }
 
@@ -291,11 +316,34 @@ export async function previewInvitationService(token: string) {
         throw new AuthenticationError("Invalid or expired invitation token");
     }
 
+    const roleRows = await getUserRoles(invitation.userId, invitation.organizationId);
+
     return {
         email: invitation.userEmail,
         organizationName: invitation.organizationName,
         organizationSlug: invitation.organizationSlug,
+        role: pickPrimaryRole(roleRows.map((role) => role.name)),
     };
+}
+
+export async function resendInvitationService(input: {
+    organizationId: string;
+    targetUserId: string;
+    actorUserId: string;
+}) {
+    const pending = await getPendingInvitations(input.organizationId);
+    const invite = pending.find((item) => item.userId === input.targetUserId);
+    if (!invite) {
+        throw new NotFoundError("Pending invitation");
+    }
+
+    return inviteUserService({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        email: invite.email,
+        firstName: invite.firstName,
+        lastName: invite.lastName,
+    });
 }
 
 // ─── List Pending Invitations ─────────────────────────────────────────────────

@@ -155,6 +155,23 @@ export const markNotificationRead = async (
   return record;
 };
 
+export const countUnreadNotifications = async (organizationId: string, userId: string) => {
+  const [row] = await db
+    .select({
+      unreadCount: sql<number>`count(*)`,
+    })
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.organizationId, organizationId),
+        eq(notifications.userId, userId),
+        eq(notifications.isRead, false),
+      ),
+    );
+
+  return Number(row?.unreadCount ?? 0);
+};
+
 export const markAllNotificationsRead = async (organizationId: string, userId: string) => {
   const result = await db
     .update(notifications)

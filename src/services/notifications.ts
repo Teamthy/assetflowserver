@@ -1,11 +1,13 @@
 import {
   createNotification,
+  countUnreadNotifications,
   findOrganizationAdminRecipients,
   findNotificationRecipient,
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
 } from "../repositories/notifications";
+import { publishNotificationEvent } from "./notification-hub";
 import { NotificationsQuery } from "../types/notifications";
 import { env } from "../config/env";
 import { NotFoundError } from "../utils/error";
@@ -60,6 +62,36 @@ export const createInAppNotification = async (input: Parameters<typeof createNot
       userId: input.userId,
       type: input.type,
     });
+
+    if (notification) {
+      const unreadCount = await countUnreadNotifications(input.organizationId, input.userId);
+      publishNotificationEvent({
+        userId: input.userId,
+        organizationId: input.organizationId,
+        event: "new_notification",
+        data: {
+          notification: {
+            id: notification.id,
+            title: notification.title,
+            message: notification.message,
+            type: notification.type,
+            isRead: notification.isRead,
+            redirectUrl:
+              typeof notification.metadata?.redirectUrl === "string"
+                ? notification.metadata.redirectUrl
+                : undefined,
+            createdAt: notification.createdAt,
+          },
+          unreadCount,
+        },
+      });
+      publishNotificationEvent({
+        userId: input.userId,
+        organizationId: input.organizationId,
+        event: "unread_count",
+        data: { count: unreadCount },
+      });
+    }
 
     sendEmailForNotificationInBackground(input);
 

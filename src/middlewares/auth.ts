@@ -10,12 +10,13 @@ export const requireAuth = (req: Request, _res: Response, next: NextFunction) =>
   }
 
   const authHeader = req.headers.authorization;
+  const queryToken = typeof req.query.token === "string" ? req.query.token : undefined;
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  if ((!authHeader || !authHeader.startsWith("Bearer ")) && !queryToken) {
     return next(new AuthenticationError("Missing bearer token"));
   }
 
-  const token = authHeader.slice(7);
+  const token = queryToken ?? authHeader!.slice(7);
 
   try {
     const payload = jwt.verify(token, env.JWT_SECRET) as jwt.JwtPayload & {

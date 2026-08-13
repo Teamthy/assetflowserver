@@ -1,7 +1,9 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "../db";
 import {
     organizationUsers,
+    roles,
+    userRoles,
     users,
 } from "../model";
 
@@ -17,6 +19,7 @@ export async function getOrganizationMembers(organizationId: string): Promise<
         email: string;
         status: string;
         joinedAt: Date | null;
+        roles: Array<{ id: string; name: string }>;
     }[]
 > {
     const rows = await db
@@ -37,7 +40,35 @@ export async function getOrganizationMembers(organizationId: string): Promise<
             )
         );
 
-    return rows;
+    if (rows.length === 0) return [];
+
+    const roleRows = await db
+        .select({
+            userId: userRoles.userId,
+            roleId: roles.id,
+            name: roles.name,
+        })
+        .from(userRoles)
+        .innerJoin(roles, eq(userRoles.roleId, roles.id))
+        .where(
+            and(
+                eq(userRoles.organizationId, organizationId),
+                inArray(userRoles.userId, rows.map((row) => row.userId)),
+                isNull(roles.deletedAt)
+            )
+        );
+
+    const rolesByUser = new Map<string, Array<{ id: string; name: string }>>();
+    for (const role of roleRows) {
+        const current = rolesByUser.get(role.userId) ?? [];
+        current.push({ id: role.roleId, name: role.name });
+        rolesByUser.set(role.userId, current);
+    }
+
+    return rows.map((row) => ({
+        ...row,
+        roles: rolesByUser.get(row.userId) ?? [],
+    }));
 }
 
 /**

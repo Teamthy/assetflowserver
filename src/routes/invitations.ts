@@ -38,6 +38,13 @@ invitationsRouter.get(
     invitationsController.listPendingInvitations
 );
 
+invitationsRouter.post(
+    "/:userId/resend",
+    requireAuth,
+    requirePermission(PERMISSIONS.USER_INVITE),
+    invitationsController.resendInvitation
+);
+
 // Cancel a pending invitation
 invitationsRouter.delete(
     "/:userId",

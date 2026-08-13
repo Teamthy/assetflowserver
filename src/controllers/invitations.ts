@@ -6,16 +6,19 @@ import {
     inviteUserService,
     listPendingInvitationsService,
     previewInvitationService,
+    resendInvitationService,
 } from "../services/invitation.service";
 import { AuthenticationError, ValidationError } from "../utils/error";
+import { setRefreshTokenCookie } from "../utils/cookies";
 
 // ─── Invite User ──────────────────────────────────────────────────────────────
 
 const inviteUserSchema = z.object({
     email: z.string().email("Valid email is required"),
-    firstName: z.string().min(1, "First name is required").max(120),
-    lastName: z.string().min(1, "Last name is required").max(120),
+    firstName: z.string().min(1).max(120).optional(),
+    lastName: z.string().min(1).max(120).optional(),
     roleId: z.string().uuid("Invalid role ID").optional(),
+    role: z.string().min(1).max(80).optional(),
 });
 
 export const inviteUser = async (
@@ -69,6 +72,7 @@ export const acceptInvitation = async (
         }
 
         const result = await acceptInvitationService(parsed.data);
+        setRefreshTokenCookie(res, result.refreshToken);
 
         return res.status(200).json({
             success: true,
@@ -127,6 +131,31 @@ export const listPendingInvitations = async (
 };
 
 // ─── Cancel Invitation ────────────────────────────────────────────────────────
+
+export const resendInvitation = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        if (!req.auth?.organizationId || !req.auth?.userId) {
+            return next(new AuthenticationError());
+        }
+
+        const result = await resendInvitationService({
+            organizationId: req.auth.organizationId,
+            targetUserId: String(req.params.userId),
+            actorUserId: req.auth.userId,
+        });
+
+        return res.status(200).json({
+            success: true,
+            data: result,
+        });
+    } catch (error) {
+        return next(error);
+    }
+};
 
 export const cancelInvitation = async (
     req: Request,

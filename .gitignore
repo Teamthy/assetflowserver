@@ -166,3 +166,5 @@ build/
 
 
 uploads/
+.pnpm-store/
+.pnpm-store/**
