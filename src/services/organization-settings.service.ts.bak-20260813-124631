@@ -9,7 +9,6 @@ import {
 import { type UpdateOrganizationSettingsInput } from "../validators/organization-settings";
 import { NotFoundError } from "../utils/error";
 import { logger } from "../utils/logger";
-import { isUndefinedTableError } from "../utils/db-errors";
 
 
 const toPublic = (row: {
@@ -42,38 +41,18 @@ export const getOrCreateOrganizationSettings = async (params: {
     organizationId: string;
     createdByUserId?: string | null;
 }): Promise<OrganizationSettingsPublic> => {
-    try {
-        const existing = await findByOrganizationId(params.organizationId);
-        if (existing) return toPublic(existing);
+    const existing = await findByOrganizationId(params.organizationId);
+    if (existing) return toPublic(existing);
 
-        logger.info("Auto-creating default organization settings (lazy init)", {
-            organizationId: params.organizationId,
-        });
+    logger.info("Auto-creating default organization settings (lazy init)", {
+        organizationId: params.organizationId,
+    });
 
-        const created = await createDefaultSettingsForOrganization({
-            organizationId: params.organizationId,
-            createdByUserId: params.createdByUserId ?? null,
-        });
-        return toPublic(created);
-    } catch (error) {
-        if (isUndefinedTableError(error)) {
-            logger.warn("organization_settings table missing; returning defaults. Run pnpm db:migrate.");
-            const now = new Date().toISOString();
-            return {
-                id: "pending-migration",
-                organizationId: params.organizationId,
-                capitalizationThreshold: "50000.00",
-                capitalizationCurrency: "NGN",
-                minimumUsefulLifeMonths: 12,
-                lowValueTreatment: "track_non_capitalized",
-                defaultDepreciationMethod: "straight_line",
-                defaultUsefulLifeYears: null,
-                createdAt: now,
-                updatedAt: now,
-            };
-        }
-        throw error;
-    }
+    const created = await createDefaultSettingsForOrganization({
+        organizationId: params.organizationId,
+        createdByUserId: params.createdByUserId ?? null,
+    });
+    return toPublic(created);
 };
 
 

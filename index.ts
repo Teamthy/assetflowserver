@@ -1,43 +1,26 @@
 import { initSentry } from "./src/config/sentry";
 initSentry();
 
-import cors from "cors";
-import express from "express";
-import helmet from "helmet";
 import { env } from "./src/config/env";
-import { errorHandler } from "./src/middlewares/error";
-import { globalRateLimit } from "./src/middlewares/rateLimit";
-import { apiRouter } from "./src/routes";
-import { logger, requestLogger } from "./src/utils/logger";
+import { app } from "./src/app";
+import { logger } from "./src/utils/logger";
 import { seedAllOrganizations } from "./src/db/seeds/roles.seeder";
 import { startScheduler } from "./src/jobs";
 
-const app = express();
+const listenHost =
+  env.HOST ?? (env.NODE_ENV === "production" ? "0.0.0.0" : undefined);
 
-app.set("trust proxy", env.TRUST_PROXY);
-app.use(helmet());
-app.use(
-  cors({
-    origin: env.CORS_ORIGIN,
-    credentials: true,
-  })
-);
-app.use(express.json({ limit: env.REQUEST_BODY_LIMIT }));
-app.use(requestLogger);
-
-// Apply global rate limit BEFORE routes
-app.use("/api", globalRateLimit, apiRouter);
-
-app.use(errorHandler);
-
-app.listen(env.PORT, async () => {
+const onListen = async () => {
   logger.info(`API running on port ${env.PORT}`);
 
   try {
     await seedAllOrganizations();
     logger.info("[Startup] Role seeding completed successfully");
   } catch (error) {
-    logger.error("[Startup] Role seeding failed", { error });
+    logger.error("[Startup] Role seeding failed", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
   }
 
   try {
@@ -46,4 +29,10 @@ app.listen(env.PORT, async () => {
   } catch (error) {
     logger.error("[Startup] Scheduler failed to start", { error });
   }
-});
+};
+
+if (listenHost) {
+  app.listen(env.PORT, listenHost, onListen);
+} else {
+  app.listen(env.PORT, onListen);
+}

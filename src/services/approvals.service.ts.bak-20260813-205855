@@ -372,13 +372,5 @@ export async function listAssetApprovalsService(
   organizationId: string,
   assetId: string
 ) {
-  try {
-    return await listAssetApprovals(organizationId, assetId);
-  } catch (error) {
-    if (isUndefinedTableError(error)) {
-      logger.warn("approvals table missing; returning empty list. Run pnpm db:migrate.");
-      return [];
-    }
-    throw error;
-  }
+  return listAssetApprovals(organizationId, assetId);
 }

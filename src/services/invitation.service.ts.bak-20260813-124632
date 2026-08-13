@@ -217,8 +217,6 @@ export async function inviteUserService(input: {
         inviteeUserId: inviteeUser.id,
         email,
         expiresAt,
-        inviteToken,
-        acceptUrl,
     };
 }
 

@@ -19,7 +19,6 @@ import {
     ValidationError,
 } from "../utils/error";
 import { logger } from "../utils/logger";
-import { isUndefinedTableError } from "../utils/db-errors";
 import {
     CompleteAuditCampaignInput,
     CreateAuditCampaignInput,

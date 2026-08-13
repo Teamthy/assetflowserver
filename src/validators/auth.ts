@@ -25,11 +25,22 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-export const organizationLoginSchema = z.object({
-  organizationSlug: z.string().min(2),
-  email: z.email(),
-  password: z.string().min(1),
-});
+export const organizationLoginSchema = z
+  .object({
+    organizationSlug: z.string().min(2).optional(),
+    slug: z.string().min(2).optional(),
+    email: z.email(),
+    password: z.string().min(1),
+  })
+  .transform((value) => ({
+    organizationSlug: value.organizationSlug ?? value.slug ?? "",
+    email: value.email,
+    password: value.password,
+  }))
+  .refine((value) => value.organizationSlug.length >= 2, {
+    message: "Organization slug is required",
+    path: ["organizationSlug"],
+  });
 
 export const verifyPasswordSchema = z.object({
   password: z.string().min(8),

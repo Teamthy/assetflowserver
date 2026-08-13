@@ -1,11 +1,14 @@
 import { defineConfig } from "drizzle-kit";
 import * as dotenv from "dotenv";
+import { sanitizeDatabaseUrl } from "./src/config/database-url";
 
 dotenv.config();
 
 if (!process.env.DATABASE_URL) {
   throw new Error("`DATABASE_URL` environment variable is required");
 }
+
+process.env.DATABASE_URL = sanitizeDatabaseUrl(process.env.DATABASE_URL);
 
 export default defineConfig({
   schema: "./src/model/index.ts",
