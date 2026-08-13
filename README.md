@@ -19,6 +19,8 @@ pnpm dev
 
 API listens on `http://localhost:6000`. Health check: `GET /api/health`. Swagger: `GET /api/docs`.
 
+`ENFORCE_RBAC` is `false` for this deployment so every authenticated member can call every route. Set `ENFORCE_RBAC=true` to restore permission and branch-scope checks. JWT auth is always required.
+
 ## Auth contract
 
 Login, register, org-login, refresh, and invitation accept return:

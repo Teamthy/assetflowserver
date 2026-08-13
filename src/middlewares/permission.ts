@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response } from "express";
+import { isRbacEnforced } from "../config/access";
 import { PermissionKey } from "../config/permissions";
 import { AuthenticationError, AuthorizationError } from "../utils/error";
 import { userHasAllPermissions, userHasPermission } from "../repositories/permissions";
@@ -20,6 +21,11 @@ export const requirePermission = (permissionKey: PermissionKey) => {
             // requireAuth must run first
             if (!req.auth?.userId || !req.auth?.organizationId) {
                 return next(new AuthenticationError("Authentication required"));
+            }
+
+            // Present deployment: every authenticated member has full access.
+            if (!isRbacEnforced()) {
+                return next();
             }
 
             const { userId, organizationId } = req.auth;
@@ -64,6 +70,10 @@ export const requireAllPermissions = (permissionKeys: PermissionKey[]) => {
                 return next(new AuthenticationError("Authentication required"));
             }
 
+            if (!isRbacEnforced()) {
+                return next();
+            }
+
             const { userId, organizationId } = req.auth;
 
             const hasAll = await userHasAllPermissions(
@@ -95,9 +105,11 @@ export const requireAnyPermission = (permissionKeys: PermissionKey[]) => {
                 return next(new AuthenticationError("Authentication required"));
             }
 
-            const { userId, organizationId } = req.auth;
+            if (!isRbacEnforced()) {
+                return next();
+            }
 
-            // Check each permission; pass if any match
+            const { userId, organizationId } = req.auth;
             const results = await Promise.all(
                 permissionKeys.map((key) =>
                     userHasPermission(userId, organizationId, key)
