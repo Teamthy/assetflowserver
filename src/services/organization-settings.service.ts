@@ -1,19 +1,14 @@
 import {
     createDefaultSettingsForOrganization,
     findByOrganizationId,
-    organizationSettingsExists,
     updateSettingsForOrganization,
 } from "../repositories/organization-settings";
-import { countAssetsByOrganizationId } from "../repositories/assets";
-import { countBranchesByOrganizationId } from "../repositories/branches";
 import {
     type OrganizationSettingsPublic,
-    type OrganizationOnboardingStatus,
 } from "../types/organization-settings";
 import { type UpdateOrganizationSettingsInput } from "../validators/organization-settings";
 import { NotFoundError } from "../utils/error";
 import { logger } from "../utils/logger";
-
 
 const toPublic = (row: {
     id: string;
@@ -32,7 +27,8 @@ const toPublic = (row: {
     capitalizationThreshold: row.capitalizationThreshold,
     capitalizationCurrency: row.capitalizationCurrency,
     minimumUsefulLifeMonths: row.minimumUsefulLifeMonths,
-    lowValueTreatment: row.lowValueTreatment as OrganizationSettingsPublic["lowValueTreatment"],
+    lowValueTreatment:
+        row.lowValueTreatment as OrganizationSettingsPublic["lowValueTreatment"],
     defaultDepreciationMethod:
         row.defaultDepreciationMethod as OrganizationSettingsPublic["defaultDepreciationMethod"],
     defaultUsefulLifeYears: row.defaultUsefulLifeYears,
@@ -40,15 +36,17 @@ const toPublic = (row: {
     updatedAt: row.updatedAt.toISOString(),
 });
 
-
 export const getOrCreateOrganizationSettings = async (params: {
     organizationId: string;
     createdByUserId?: string | null;
 }): Promise<OrganizationSettingsPublic> => {
     const existing = await findByOrganizationId(params.organizationId);
-    if (existing) return toPublic(existing);
 
-    logger.info("Auto-creating default organization settings (lazy init)", {
+    if (existing) {
+        return toPublic(existing);
+    }
+
+    logger.info("Auto-creating default organization settings", {
         organizationId: params.organizationId,
     });
 
@@ -56,9 +54,9 @@ export const getOrCreateOrganizationSettings = async (params: {
         organizationId: params.organizationId,
         createdByUserId: params.createdByUserId ?? null,
     });
+
     return toPublic(created);
 };
-
 
 export const createDefaultSettings = async (params: {
     organizationId: string;
@@ -68,24 +66,8 @@ export const createDefaultSettings = async (params: {
         organizationId: params.organizationId,
         createdByUserId: params.createdByUserId,
     });
+
     return toPublic(created);
-};
-
-export const getOrganizationOnboardingStatus = async (
-    organizationId: string,
-): Promise<OrganizationOnboardingStatus> => {
-    const [settingsExists, branchCount, assetCount] = await Promise.all([
-        organizationSettingsExists(organizationId),
-        countBranchesByOrganizationId(organizationId),
-        countAssetsByOrganizationId(organizationId),
-    ]);
-
-    return {
-        organizationSettingsExists: settingsExists,
-        branchCount,
-        assetCount,
-        isSetupComplete: settingsExists && branchCount > 0 && assetCount > 0,
-    };
 };
 
 export const updateOrganizationSettings = async (params: {
@@ -117,12 +99,15 @@ export const updateOrganizationSettings = async (params: {
     return toPublic(updated);
 };
 
-
 export const getRecognitionPolicy = async (organizationId: string) => {
-    const settings = await getOrCreateOrganizationSettings({ organizationId });
+    const settings = await getOrCreateOrganizationSettings({
+        organizationId,
+    });
 
     return {
-        capitalizationThreshold: parseFloat(settings.capitalizationThreshold),
+        capitalizationThreshold: parseFloat(
+            settings.capitalizationThreshold,
+        ),
         capitalizationCurrency: settings.capitalizationCurrency,
         minimumUsefulLifeMonths: settings.minimumUsefulLifeMonths,
         lowValueTreatment: settings.lowValueTreatment,

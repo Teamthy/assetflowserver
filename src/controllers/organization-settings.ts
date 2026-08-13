@@ -10,24 +10,12 @@ export const getSettings = async (
 ) => {
     try {
         const auth = getAuthenticatedContext(req);
+
         const data = await settingsService.getOrCreateOrganizationSettings({
             organizationId: auth.organizationId,
             createdByUserId: auth.userId,
         });
-        res.status(200).json({ success: true, data });
-    } catch (error) {
-        next(error);
-    }
-};
 
-export const getOnboardingStatus = async (
-    req: Request,
-    res: Response,
-    next: NextFunction,
-) => {
-    try {
-        const auth = getAuthenticatedContext(req);
-        const data = await settingsService.getOrganizationOnboardingStatus(auth.organizationId);
         res.status(200).json({ success: true, data });
     } catch (error) {
         next(error);
@@ -41,7 +29,11 @@ export const updateSettings = async (
 ) => {
     try {
         const auth = getAuthenticatedContext(req);
-        const payload = parseRequestData(updateOrganizationSettingsSchema, req.body);
+
+        const payload = parseRequestData(
+            updateOrganizationSettingsSchema,
+            req.body,
+        );
 
         const data = await settingsService.updateOrganizationSettings({
             organizationId: auth.organizationId,
