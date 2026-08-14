@@ -3,8 +3,12 @@ import {
   bulkTransferAssets,
   bulkUpdateAssetStatus,
 } from "../repositories/bulk";
+import { disposeAssetById, findAssetById } from "../repositories/assets";
+import { requestDisposalApprovalService } from "./approvals.service";
 import { notifyOrganizationAdmins } from "./notifications";
 import { logger } from "../utils/logger";
+
+const DISPOSAL_APPROVAL_THRESHOLD = 500_000;
 
 // ─── Bulk Delete ──────────────────────────────────────────────────────────────
 
@@ -126,4 +130,86 @@ export async function bulkUpdateStatusService(input: {
   });
 
   return result;
+}
+
+// ─── Bulk Dispose ─────────────────────────────────────────────────────────────
+
+export async function bulkDisposeAssetsService(input: {
+  organizationId: string;
+  actorUserId: string;
+  assetIds: string[];
+  method: "sold" | "donated" | "scrapped" | "lost" | "written_off" | "other";
+  reason: string;
+  proceeds: number;
+  disposedAt?: Date;
+  notes?: string;
+}) {
+  const { organizationId, actorUserId, assetIds } = input;
+  const successful: string[] = [];
+  const submittedForApproval: string[] = [];
+  const failed: Array<{ assetId: string; reason: string }> = [];
+
+  logger.info("[BulkService] Bulk dispose started", {
+    organizationId,
+    actorUserId,
+    count: assetIds.length,
+    method: input.method,
+  });
+
+  for (const assetId of assetIds) {
+    try {
+      const asset = await findAssetById(organizationId, assetId);
+      if (!asset) {
+        failed.push({ assetId, reason: "Asset not found" });
+        continue;
+      }
+      if (asset.status === "disposed") {
+        failed.push({ assetId, reason: "Asset is already disposed" });
+        continue;
+      }
+
+      const cost = Number(asset.purchaseCost ?? 0);
+      if (Number.isFinite(cost) && cost >= DISPOSAL_APPROVAL_THRESHOLD) {
+        await requestDisposalApprovalService({
+          organizationId,
+          assetId,
+          requestedByUserId: actorUserId,
+          method: input.method,
+          reason: input.reason,
+          proceeds: input.proceeds,
+          disposedAt: input.disposedAt,
+          notes: input.notes,
+        });
+        submittedForApproval.push(assetId);
+        continue;
+      }
+
+      const disposed = await disposeAssetById(organizationId, assetId, actorUserId, {
+        method: input.method,
+        reason: input.reason,
+        proceeds: input.proceeds,
+        disposedAt: input.disposedAt,
+        notes: input.notes,
+      });
+      if (!disposed) {
+        failed.push({ assetId, reason: "Asset not found" });
+        continue;
+      }
+      successful.push(assetId);
+    } catch (error) {
+      failed.push({
+        assetId,
+        reason: error instanceof Error ? error.message : "Disposal failed",
+      });
+    }
+  }
+
+  logger.info("[BulkService] Bulk dispose complete", {
+    organizationId,
+    successful: successful.length,
+    submittedForApproval: submittedForApproval.length,
+    failed: failed.length,
+  });
+
+  return { successful, submittedForApproval, failed };
 }

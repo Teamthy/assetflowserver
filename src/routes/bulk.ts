@@ -28,3 +28,10 @@ bulkRouter.post(
   requirePermission(PERMISSIONS.ASSET_UPDATE),
   bulkController.bulkUpdateStatus
 );
+
+// ─── Bulk Dispose ─────────────────────────────────────────────────────────────
+bulkRouter.post(
+  "/assets/dispose",
+  requirePermission(PERMISSIONS.ASSET_DISPOSE),
+  bulkController.bulkDisposeAssets
+);
