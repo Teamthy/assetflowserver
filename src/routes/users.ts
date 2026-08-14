@@ -24,6 +24,15 @@ usersRouter.get(
     usersController.listOrganizationRoles
 );
 
+// ─── Transfer organization ownership ──────────────────────────────────────────
+// Must be before /:userId to avoid route conflict
+usersRouter.post(
+    "/transfer-ownership",
+    requirePermission(PERMISSIONS.ORG_OWNERSHIP_TRANSFER),
+    requireNotReadOnly,
+    usersController.transferOwnership
+);
+
 // ─── Get user roles ───────────────────────────────────────────────────────────
 usersRouter.get(
     "/:userId/roles",

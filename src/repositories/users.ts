@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "../db";
 import {
+    organizations,
     organizationUsers,
     roles,
     userRoles,
@@ -19,9 +20,16 @@ export async function getOrganizationMembers(organizationId: string): Promise<
         email: string;
         status: string;
         joinedAt: Date | null;
+        isOwner: boolean;
         roles: Array<{ id: string; name: string }>;
     }[]
 > {
+    const [organization] = await db
+        .select({ ownerUserId: organizations.ownerUserId })
+        .from(organizations)
+        .where(eq(organizations.id, organizationId))
+        .limit(1);
+
     const rows = await db
         .select({
             userId: users.id,
@@ -67,6 +75,7 @@ export async function getOrganizationMembers(organizationId: string): Promise<
 
     return rows.map((row) => ({
         ...row,
+        isOwner: organization?.ownerUserId === row.userId,
         roles: rolesByUser.get(row.userId) ?? [],
     }));
 }
