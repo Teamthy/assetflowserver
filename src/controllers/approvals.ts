@@ -146,10 +146,12 @@ export const listPendingApprovals = async (
   try {
     const auth = requireAuthContext(req);
     const type = req.query.type as "disposal" | "transfer" | undefined;
+    const status = req.query.status as "pending" | "approved" | "rejected" | "all" | undefined;
 
     const result = await listPendingApprovalsService(
       auth.organizationId,
-      type
+      type,
+      status ?? "all",
     );
 
     return res.status(200).json({

@@ -353,10 +353,11 @@ export async function decideTransferApprovalService(input: {
 
 export async function listPendingApprovalsService(
   organizationId: string,
-  type?: "disposal" | "transfer"
+  type?: "disposal" | "transfer",
+  status?: "pending" | "approved" | "rejected" | "all",
 ) {
   try {
-    return await listPendingApprovals(organizationId, type);
+    return await listPendingApprovals(organizationId, type, status);
   } catch (error) {
     if (isUndefinedTableError(error)) {
       logger.warn("approvals table missing; returning empty list. Run pnpm db:migrate.");

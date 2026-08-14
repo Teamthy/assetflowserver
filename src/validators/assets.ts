@@ -29,7 +29,7 @@ export const assetConditionSchema = z.enum(["excellent", "good", "fair", "poor"]
 
 export const assetListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(200).default(20),
+  limit: z.coerce.number().int().min(1).max(500).default(20),
   search: z.string().trim().min(1).optional(),
   status: assetStatusSchema.optional(),
   condition: assetConditionSchema.optional(),
@@ -206,7 +206,7 @@ export const importAssetRowSchema = z.object({
   }, z.string().trim().optional()),
   purchaseCost: requiredMoney,
   purchaseDate: optionalDate,
-  branchId: optionalUuid,
+  branchId: z.preprocess(emptyToUndefined, z.string().trim().max(180).optional()),
   assignedTo: optionalUuid,
   status: assetStatusSchema.optional(),
   expectedUsefulLifeMonths: z.coerce.number().int().nonnegative().optional(),
@@ -249,8 +249,20 @@ export const bulkUpdateStatusSchema = z.object({
     .array(z.uuid("Each asset ID must be a valid UUID"))
     .min(1, "At least one asset ID is required")
     .max(100, "Maximum 100 assets per bulk operation"),
-  status: assetStatusSchema,
+  status: z.enum(["active", "maintenance"]),
   reason: z.string().trim().max(2000).optional(),
+});
+
+export const bulkDisposeAssetsSchema = z.object({
+  assetIds: z
+    .array(z.uuid("Each asset ID must be a valid UUID"))
+    .min(1, "At least one asset ID is required")
+    .max(100, "Maximum 100 assets per bulk operation"),
+  method: z.enum(["sold", "donated", "scrapped", "lost", "written_off", "other"]),
+  reason: z.string().trim().min(2).max(2000),
+  proceeds: z.coerce.number().nonnegative().default(0),
+  disposedAt: optionalDate,
+  notes: z.string().trim().max(5000).optional(),
 });
 
 // ─── Approval Workflows ───────────────────────────────────────────────────────

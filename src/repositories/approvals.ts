@@ -1,6 +1,7 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "../db";
 import { approvals } from "../model/approvals";
+import { assets } from "../model/asset";
 
 // ─── Create Approval Request ──────────────────────────────────────────────────
 
@@ -107,22 +108,38 @@ export async function decideApproval(
 
 export async function listPendingApprovals(
   organizationId: string,
-  type?: "disposal" | "transfer"
-): Promise<(typeof approvals.$inferSelect)[]> {
+  type?: "disposal" | "transfer",
+  status?: "pending" | "approved" | "rejected" | "all",
+) {
   const filters = [
     eq(approvals.organizationId, organizationId),
-    eq(approvals.status, "pending"),
   ];
+
+  if (status && status !== "all") {
+    filters.push(eq(approvals.status, status));
+  }
 
   if (type) {
     filters.push(eq(approvals.type, type));
   }
 
-  return db
-    .select()
+  const rows = await db
+    .select({
+      approval: approvals,
+      assetName: assets.name,
+      assetTag: assets.assetTag,
+    })
     .from(approvals)
+    .leftJoin(assets, eq(approvals.assetId, assets.id))
     .where(and(...filters))
     .orderBy(desc(approvals.createdAt));
+
+  return rows.map((row) => ({
+    ...row.approval,
+    assetName: row.assetName ?? undefined,
+    assetTag: row.assetTag ?? undefined,
+    requestType: row.approval.type,
+  }));
 }
 
 // ─── List Asset Approvals ─────────────────────────────────────────────────────

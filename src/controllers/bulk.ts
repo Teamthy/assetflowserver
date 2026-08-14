@@ -2,11 +2,13 @@ import { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import {
   bulkDeleteAssetsSchema,
+  bulkDisposeAssetsSchema,
   bulkTransferAssetsSchema,
   bulkUpdateStatusSchema,
 } from "../validators/assets";
 import {
   bulkDeleteAssetsService,
+  bulkDisposeAssetsService,
   bulkTransferAssetsService,
   bulkUpdateStatusService,
 } from "../services/bulk.service";
@@ -101,8 +103,39 @@ export const bulkUpdateStatus = async (
       organizationId: auth.organizationId,
       actorUserId: auth.userId,
       assetIds: payload.assetIds,
-      status: payload.status as "active" | "maintenance",
+      status: payload.status,
       reason: payload.reason,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// ─── Bulk Dispose ─────────────────────────────────────────────────────────────
+
+export const bulkDisposeAssets = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const auth = requireAuthContext(req);
+    const payload = parseData(bulkDisposeAssetsSchema, req.body);
+
+    const result = await bulkDisposeAssetsService({
+      organizationId: auth.organizationId,
+      actorUserId: auth.userId,
+      assetIds: payload.assetIds,
+      method: payload.method,
+      reason: payload.reason,
+      proceeds: payload.proceeds,
+      disposedAt: payload.disposedAt,
+      notes: payload.notes,
     });
 
     return res.status(200).json({

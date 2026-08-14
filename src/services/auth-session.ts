@@ -131,6 +131,7 @@ export async function issueAuthSession(userId: string, organizationId: string) {
       name: context.organization.name,
       slug: context.organization.slug,
       isMultiBranch: context.organization.multiBranchEnabled,
+      ownerUserId: context.organization.ownerUserId,
     },
     role: context.role,
     roles: context.roles,

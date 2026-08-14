@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import { env } from "../config/env";
 import { bulkCreateAssetsAtomic } from "../repositories/assets";
+import { listBranches } from "../repositories/branches";
 import { findOrganizationById } from "../repositories/organizations";
 import { ValidationError } from "../utils/error";
 import { logger } from "../utils/logger";
@@ -12,6 +13,9 @@ type ImportResult = {
   totalRows: number;
   insertedCount: number;
   failedCount: number;
+  inserted: number;
+  failed: number;
+  successCount: number;
   failures: Array<{ row: number; message: string }>;
   successfulRows: Array<{
     row: number;
@@ -21,6 +25,38 @@ type ImportResult = {
     accountingTreatment: string;
     reasons: string[];
   }>;
+  recognitionSummary: Record<string, number>;
+};
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const emptyImportResult = (overrides: Partial<ImportResult> = {}): ImportResult => ({
+  totalRows: 0,
+  insertedCount: 0,
+  failedCount: 0,
+  inserted: 0,
+  failed: 0,
+  successCount: 0,
+  failures: [],
+  successfulRows: [],
+  recognitionSummary: {},
+  ...overrides,
+});
+
+const finalizeImportResult = (result: ImportResult): ImportResult => {
+  result.inserted = result.insertedCount;
+  result.failed = result.failedCount;
+  result.successCount = result.insertedCount;
+  result.recognitionSummary = result.successfulRows.reduce<Record<string, number>>(
+    (summary, row) => {
+      const key = row.accountingTreatment || "unknown";
+      summary[key] = (summary[key] ?? 0) + 1;
+      return summary;
+    },
+    {},
+  );
+  return result;
 };
 
 type AssetImportPayload = Parameters<typeof bulkCreateAssetsAtomic>[2][number];
@@ -135,16 +171,18 @@ const importAssetsFromWorkbook = async (
     ]);
   }
 
-  const sheet = workbook.worksheets[0];
+  const sheet =
+    workbook.getWorksheet("Assets") ??
+    workbook.worksheets.find((item) => item.name.trim().toLowerCase() === "assets") ??
+    workbook.worksheets[0];
 
   if (!sheet) {
-    return {
-      totalRows: 0,
-      insertedCount: 0,
-      failedCount: 1,
-      failures: [{ row: 0, message: "Worksheet not found" }],
-      successfulRows: [],
-    };
+    return finalizeImportResult(
+      emptyImportResult({
+        failedCount: 1,
+        failures: [{ row: 0, message: "Worksheet not found" }],
+      }),
+    );
   }
 
   const importableRowCount = Math.max(0, sheet.actualRowCount - 1);
@@ -152,13 +190,27 @@ const importAssetsFromWorkbook = async (
   const rows = sheet
     .getRows(2, rowsToRead)
     ?.filter((row) => row.actualCellCount > 0) ?? [];
-  const result: ImportResult = {
-    totalRows: importableRowCount,
-    insertedCount: 0,
-    failedCount: 0,
-    failures: [],
-    successfulRows: [],
+
+  const orgBranches = await listBranches(organizationId);
+  const defaultBranchId = orgBranches[0]?.id;
+  const resolveBranchId = (raw?: string): string | undefined => {
+    if (!raw) {
+      return organization.multiBranchEnabled ? defaultBranchId : undefined;
+    }
+    if (UUID_RE.test(raw)) {
+      return orgBranches.find((branch) => branch.id === raw)?.id ?? raw;
+    }
+    const needle = raw.trim().toLowerCase();
+    const named = orgBranches.find(
+      (branch) =>
+        branch.name.toLowerCase() === needle ||
+        (branch.code ?? "").toLowerCase() === needle,
+    );
+    if (named) return named.id;
+    return organization.multiBranchEnabled ? defaultBranchId : undefined;
   };
+
+  const result = emptyImportResult({ totalRows: importableRowCount });
 
   if (importableRowCount > env.ASSET_IMPORT_MAX_ROWS) {
     result.failedCount += importableRowCount - env.ASSET_IMPORT_MAX_ROWS;
@@ -199,11 +251,12 @@ const importAssetsFromWorkbook = async (
       continue;
     }
 
-    if (organization.multiBranchEnabled && !parsed.data.branchId) {
+    const resolvedBranchId = resolveBranchId(parsed.data.branchId);
+    if (organization.multiBranchEnabled && !resolvedBranchId) {
       addFailure(result, {
         row: row.number,
         message:
-          "branchId is required when multi-branch mode is enabled for this organization",
+          "No branch found. Create a branch first, or put a branch name/code/UUID in the Branch ID column.",
       });
       continue;
     }
@@ -219,10 +272,11 @@ const importAssetsFromWorkbook = async (
       row: row.number,
       payload: {
         ...parsed.data,
+        branchId: resolvedBranchId,
         status: parsed.data.status ?? "active",
         condition: "good",
         ...recognitionPayload.payload,
-      },
+      } as AssetImportPayload,
       recognition: recognitionPayload.recognition,
     });
   }
@@ -278,5 +332,5 @@ const importAssetsFromWorkbook = async (
     },
   });
 
-  return result;
+  return finalizeImportResult(result);
 };
