@@ -232,7 +232,14 @@ export const importAssets = async (req: Request, res: Response, next: NextFuncti
 
     try {
       const data = await importAssetsFromExcelFile(auth.organizationId, auth.userId, file.path);
-      res.status(200).json({ success: true, data });
+      res.status(200).json({
+        success: true,
+        inserted: data.insertedCount,
+        failed: data.failedCount,
+        insertedCount: data.insertedCount,
+        failedCount: data.failedCount,
+        data,
+      });
     } finally {
       await unlink(file.path).catch(() => undefined);
     }

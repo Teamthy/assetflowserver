@@ -206,7 +206,7 @@ export const importAssetRowSchema = z.object({
   }, z.string().trim().optional()),
   purchaseCost: requiredMoney,
   purchaseDate: optionalDate,
-  branchId: optionalUuid,
+  branchId: z.preprocess(emptyToUndefined, z.string().trim().max(180).optional()),
   assignedTo: optionalUuid,
   status: assetStatusSchema.optional(),
   expectedUsefulLifeMonths: z.coerce.number().int().nonnegative().optional(),
